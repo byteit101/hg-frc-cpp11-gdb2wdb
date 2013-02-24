@@ -83,7 +83,6 @@ class Wdb
   def initialize(host)
     @core = WdbCore.new
     @sock = UDPSocket.new
-    @sock.bind "", 727
     @sock.connect host, 0x4321
     @seqn = 0 # start sequence number
   end
@@ -99,6 +98,9 @@ class Wdb
   end
   def disconnect()
     send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['TARGET_DISCONNECT'], @core.get_mem)
+  end
+  def memalign(bound, size)
+    #001b86d4
   end
 end
 
