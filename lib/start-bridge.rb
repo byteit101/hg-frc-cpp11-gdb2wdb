@@ -64,7 +64,7 @@ loop do
     elsif str.start_with? "Attached"
       client.put_gdb_str("0")
     elsif str.start_with? "Symbol::"
-      client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
+      #client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
       #client.put_gdb_str("qSymbol:FRC_UserProgram_StartupLibraryInit")
     elsif str.start_with? "Symbol:"
       puts str

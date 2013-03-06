@@ -1,6 +1,7 @@
 # GPLv3+
 require 'socket'
 require_relative 'xdr'
+require_relative '../blocking_udp'
 
 class OncRpc
   RPC_CALL = 0
@@ -82,12 +83,18 @@ class Wdb
   }
   def initialize(host)
     @core = WdbCore.new
-    @sock = UDPSocket.new
+    @sock = BlockingUDPSocket.new
+    @sock.bind("", 149501)
+    @sock.filter do |inpkt|
+      [:input, :response][inpkt[4..7].unpack("N")[0]]
+    end
     @sock.connect host, 0x4321
     @seqn = 0 # start sequence number
   end
   def send(data)
-    @sock.send data, 0 #, "10.4.51.2", 0x4321
+    puts "sending data"
+    resp = @sock.send_blocking data, 0 #, "10.4.51.2", 0x4321
+    p resp
   end
   def set_name(str)
     send OncRpc.wrap(@seqn += 1, 122,
@@ -100,6 +107,19 @@ class Wdb
     send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['TARGET_DISCONNECT'], @core.get_mem)
   end
   def memalign(bound, size)
+    #FIXME: this should not be hard coded
+    direct_call(0x001b86d4, [bound, size])
+  end
+  def direct_call(entry_point, args)
+    send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['DIRECT_CALL'], @core.get_mem + [
+        0, # System context
+        0, # string length
+        0, 0, 0, # redirect stdin, out, err
+        0, #base addr
+        entry_point,
+        args.length,
+        args.length #don't ask me why its twice, it just is!
+      ].pack("N*") + args.pack("N*")) # hope that the args are all ints...
     #001b86d4
   end
 end
