@@ -4,6 +4,7 @@ require_relative 'wdb/wdb'
 
 class WdbGdbMusher
   attr_accessor :mod_offsets
+  attr_reader :wdb 
   def initialize
     @wdb = Wdb.new "10.4.51.2"
     @wdb.connect
@@ -29,6 +30,26 @@ class WdbGdbMusher
     syms = syms[0]
     puts "Found 'FRC_UserProgram_StartupLibraryInit' in the module with id 0x%x" % syms.ref
     @mod_offsets = @wdb.get_module(syms.ref)
+  end
+  
+  def debug_mode=(value)
+    # yea, magic numbers. you can find this in the symbol table. its edrSystemDebugModeSet(1)
+    @wdb.direct_call(0x001a32d0, [value ? 1 : 0])
+    value
+  end
+  
+  def get_thread_id(name="MY_TESTING")
+    res = @wdb.exec_gopher(WdbGopherStrings::GET_THREADS_SHORT) # format \x01string\0\x00threadid
+    # this is so cheating. TODO: make it better
+    chop = res[res.index(name)+name.length+1, 5]
+    unless chop[0] == "\0"
+      puts "Gopher thread not found!"
+      p res
+      puts "--------"
+      p chop
+      raise "Thread #{name} was not found"
+    end
+    chop[1,4].unpack("N")[0].tap{|i| puts "Found Thread ID of '#{name}': 0x#{i.to_s(16)}"}
   end
   
   def get_r_hex(r=4, count=1)

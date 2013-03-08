@@ -148,7 +148,7 @@ class Wdb
         sym.name = ""
       else
         sym.name = raw[offset += 4, sym.name-1] #ignore the trailing \0. 
-       # puts "sym.name (data) = #{sym.name}"
+        # puts "sym.name (data) = #{sym.name}"
         offset += sym.name.length
       end
       if (offset % 4) != 0
@@ -224,6 +224,41 @@ class Wdb
       ].pack("N*") + args.pack("N*")) # hope that the args are all ints...
     #001b86d4
   end
+  def exec_gopher(str)
+    data = "".force_encoding("binary")
+    res = raw_exec_gopher(str)
+    data << res.data
+    while res.has_more
+      res = raw_exec_gopher("")
+      data << res.data
+    end
+    data
+  end
+  def raw_exec_gopher(str)
+    # tool number is 01c161c0
+    # must we use tool 0x01c161c0 ?
+    raw = send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVALUATE_GOPHER'], [
+          2, 0, 0 # WDB_CORE
+        ].pack("N*") + 
+          Xdr.flatten(str)))
+      
+    # ugh, must make this a funciton soon
+    rpc = RpcHeader.new(raw[0,36])
+    if (rpc.type != 1) || rpc.event_type != 0 || (rpc.error_code != 0 && rpc.error_code != 0x4000) # reply, no event
+      puts "whoa! unknown GOPHER packet!"
+      puts raw.unpack("H*")[0] # hexdump it
+      puts "END OF ERROR PACKET"
+      raise "unknown GOPHER"
+    end
+    raw = raw[36..-1]
+    # just shove in all the data
+    WdbGopherResults.new(rpc.error_code == 0x4000, raw[16..-1])
+  end
+end
+
+class WdbGopherStrings
+  GET_THREADS="0x2feaac * +64 * { <-28 ! <+0 +48 @> <+44 *{$ 0}> <+152 @> <+112 @> <+148 @> <+448+140 @> > *}"
+  GET_THREADS_SHORT="0x2feaac * +64 * { <-28 <+44 *{$ 0}> !> *}"
 end
 
 class WdbCore
@@ -233,6 +268,7 @@ class WdbCore
 end
 
 Struct.new("CheapModuleOffsets", :text, :data, :bss)
+WdbGopherResults = Struct.new("WdbGopherResults", :has_more, :data)
 
 class Symtab
   attr_accessor  :index, :more_coming, :entries

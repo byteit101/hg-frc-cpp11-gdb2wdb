@@ -8,7 +8,7 @@ class Xdr
   end
   def self.flatten_str(str)
     if (str.length % 4) != 0
-      str << ('\0' * (4 - (str.length % 4 )))
+      str << ("\0" * (4 - (str.length % 4 )))
     end
     [str.length].pack("N") + str
   end

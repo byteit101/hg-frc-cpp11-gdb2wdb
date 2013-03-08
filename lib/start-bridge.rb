@@ -54,6 +54,13 @@ server = TCPServer.new 2345
 
 wdb_mush = WdbGdbMusher.new
 puts "Listening for GDB..."
+#puts "Gopher:"
+#puts wdb_mush.wdb.exec_gopher("0x2feaac * +64 * { <-28 ! <+0 +48 @> <+44 *{$ 0}> <+152 @> <+112 @> <+148 @> <+448+140 @> > *}").unpack("H*")
+puts "Searching for thead"
+thread_id = wdb_mush.get_thread_id
+
+puts "enabling debug mode..."
+wdb_mush.debug_mode = true
 puts "IP HEX: "
 puts "sigh, now I need to find the task ID...."
 p wdb_mush.get_ip_hex
