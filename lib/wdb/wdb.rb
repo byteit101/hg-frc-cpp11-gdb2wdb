@@ -174,18 +174,25 @@ class Wdb
   def get_mem()
     
   end
-  def get_regs(rx=35, count=1, type=:int)
+  def get_regs(thread_id, rx=35, count=1, type=:int)
     # must we use tool 0x01c161c0 ?
     decode_regs(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['REGS_GET'], [
             2, 0, 0, # WDB_CORE
             (type == :int ? 0 : 1),
             3, # ctx type = task
-            1, 1, 0x00ec2128, # magic arguments, of length 1, 1 (silly duplication)
+            1, 1, thread_id, # task to get, of length 1, 1 (silly duplication)
             0, #options
             rx * 4, # register base
             count * 4, # size
             0 # param
           ].pack("N*"))))
+  end
+  def thread_break(thread_id)
+    send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
+            2, 0, 0, # WDB_CORE
+            3, # context = task
+            1, 1, thread_id # num of arguments, num of arguments, argument
+          ].pack("N*")))
   end
   def decode_regs(raw)
     # ugh, must make this a funciton soon
@@ -199,9 +206,9 @@ class Wdb
     raw = raw[36..-1]
     # options, source, dest, length = 4, skip them
     raw = raw[16..-1]
-    return raw.unpack("H*")
+    raw =  raw.unpack("H*")
     # naw...
-    raw.unpack("N*")
+    #raw.unpack("N*")
     if raw.length == 1
       raw[0]
     else

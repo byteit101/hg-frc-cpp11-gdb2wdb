@@ -63,8 +63,9 @@ puts "enabling debug mode..."
 wdb_mush.debug_mode = true
 puts "IP HEX: "
 puts "sigh, now I need to find the task ID...."
-p wdb_mush.get_ip_hex
+p wdb_mush.get_ip_hex(thread_id)
 client = server.accept
+begin
 loop do
   str = client.get_gdb_str
   if str == "-"
@@ -109,9 +110,28 @@ loop do
   elsif str == "!"
     client.put_ok
   elsif str == "g" # registers! oh yea, no ow
-    client.put_gdb_str(wdb_mush.get_r_hex(0,0x80))
+    client.put_gdb_str(wdb_mush.get_r_hex(thread_id, 0,4))
   elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
-    client.put_gdb_str(wdb_mush.get_ip_hex)
+    r = str[1..-1].to_i(16)
+    # name  mem gdb
+    # msr    32 41 
+    # lr     33 43
+    # ctr    34 44
+    # pc/eip 35 40
+    # cr     36 42
+    # xer    37 45
+    gdb_to_wdb = {
+      0x41=>32,
+      0x43 => 33,
+      0x44 => 34,
+      0x40 => 35,
+      0x42 => 36,
+      0x45 => 37
+    }
+    if r >= 0x40
+      r = gdb_to_wdb[r]
+    end
+    client.put_gdb_str(wdb_mush.get_r_hex(thread_id, r))
   elsif str.start_with? "vKill"
     client.put_ok
   else
@@ -120,4 +140,7 @@ loop do
   end
 end
 client.close
+ensure
+  wdb_mush.close
+end
  

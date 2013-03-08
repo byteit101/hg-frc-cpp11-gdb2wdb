@@ -52,12 +52,12 @@ class WdbGdbMusher
     chop[1,4].unpack("N")[0].tap{|i| puts "Found Thread ID of '#{name}': 0x#{i.to_s(16)}"}
   end
   
-  def get_r_hex(r=4, count=1)
-    @wdb.get_regs(r, count)
+  def get_r_hex(thread_id, r=4, count=1)
+    @wdb.get_regs(thread_id, r, count)
   end
   
-  def get_ip_hex()
-    @wdb.get_regs(35, 1)
+  def get_ip_hex(thread_id)
+    @wdb.get_regs(thread_id, 35, 1)
   end
   
   def close
