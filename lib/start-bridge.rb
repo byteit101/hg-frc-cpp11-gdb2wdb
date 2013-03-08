@@ -1,6 +1,14 @@
 # GPLv3+
 
+# gdb
+# file frc.out
+# target remote :2345
+# info symbol hex => function
+# info address function => hex
+
+
 require 'socket'
+require_relative 'start-wdb'
 
 GDB_PACKET = /^\$(.*)\#(..)$/
 
@@ -44,6 +52,11 @@ end
 
 server = TCPServer.new 2345
 
+wdb_mush = WdbGdbMusher.new
+puts "Listening for GDB..."
+puts "IP HEX: "
+puts "sigh, now I need to find the task ID...."
+p wdb_mush.get_ip_hex
 client = server.accept
 loop do
   str = client.get_gdb_str
@@ -66,11 +79,12 @@ loop do
     elsif str.start_with? "Symbol::"
       #client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
       #client.put_gdb_str("qSymbol:FRC_UserProgram_StartupLibraryInit")
+      client.put_ok
     elsif str.start_with? "Symbol:"
       puts str
       client.put_ok
     elsif str.start_with? "Offsets"
-      client.put_gdb_str "TextSeg=44551100"
+      client.put_gdb_str(sprintf "TextSeg=%x;DataSeg=%x", wdb_mush.mod_offsets.text, wdb_mush.mod_offsets.data)
     elsif str == "TStatus" #tracing status
       client.put_gdb_str("T0")
     elsif str == "TfV"
@@ -88,9 +102,9 @@ loop do
   elsif str == "!"
     client.put_ok
   elsif str == "g" # registers! oh yea, no ow
-    client.put_gdb_str("00FF00FF00EE00FF0044551100abcdef")
+    client.put_gdb_str(wdb_mush.get_r_hex(0,0x80))
   elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
-    client.put_gdb_str("0001a90c")
+    client.put_gdb_str(wdb_mush.get_ip_hex)
   elsif str.start_with? "vKill"
     client.put_ok
   else
@@ -99,3 +113,4 @@ loop do
   end
 end
 client.close
+ 

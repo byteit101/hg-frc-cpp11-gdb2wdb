@@ -2,6 +2,7 @@
 require 'socket'
 require_relative 'xdr'
 require_relative '../blocking_udp'
+require_relative '../mem_struct.rb'
 
 class OncRpc
   RPC_CALL = 0
@@ -92,9 +93,9 @@ class Wdb
     @seqn = 0 # start sequence number
   end
   def send(data)
-    puts "sending data"
+    #puts "sending data"
     resp = @sock.send_blocking data, 0 #, "10.4.51.2", 0x4321
-    p resp
+    #p resp
   end
   def set_name(str)
     send OncRpc.wrap(@seqn += 1, 122,
@@ -105,6 +106,107 @@ class Wdb
   end
   def disconnect()
     send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['TARGET_DISCONNECT'], @core.get_mem)
+  end
+  def get_symbols(mod=0, sym=0, flags=0)
+    decode_symtab(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['SYM_GET'], @core.get_mem + [
+            mod.to_i, sym.to_i, flags.to_i
+          ].pack("N*")))) # hope that the args are all ints...
+  end
+  def get_module(mod, sym=0, flags=0)
+    decode_mod_info(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MOD_INFO_GET'], @core.get_mem + [
+            mod.to_i, sym.to_i, flags.to_i
+          ].pack("N*")))) # hope that the args are all ints...
+  end
+  def decode_symtab(raw)
+    # check the header
+    rpc = RpcHeader.new(raw[0,36])
+    if (rpc.type != 1) || rpc.event_type != 0 # reply, no event
+      puts "whoa! unknown SYMTAB packet!"
+      puts raw.unpack("H*")[0] # hexdump it
+      puts "END OF ERROR PACKET"
+      raise "unknown SYMTAB"
+    end
+    raw = raw[36..-1]
+    symtab = Symtab.new
+    symtab.index = raw[0,4].unpack("N")[0]
+    symtab.more_coming = (raw[4,4].unpack("N")[0] != 0)
+    symtab.entries = []
+    offset = 8
+    while raw[offset, 4].unpack("N")[0] != 0
+      sym = SymbolInfo.new
+      sym.next = raw[offset += 4, 4].unpack("N")[0]
+      sym.id = raw[offset += 4, 4].unpack("N")[0]
+      sym.value = raw[offset += 4, 4].unpack("N")[0]
+      sym.ref = raw[offset += 4, 4].unpack("N")[0]
+      sym.type = raw[offset += 4, 4].unpack("N")[0]
+      sym.group = raw[offset += 4, 4].unpack("N")[0]
+      sym.small_unk = raw[offset += 4, 4].unpack("N")[0]
+      sym.addr_unk = raw[offset += 4, 4].unpack("N")[0]
+      sym.name = raw[offset += 4, 4].unpack("N")[0]
+      #puts "sym.name (length) = #{sym.name}; offset = #{offset}"
+      if sym.name == 0
+        sym.name = ""
+      else
+        sym.name = raw[offset += 4, sym.name-1] #ignore the trailing \0. 
+       # puts "sym.name (data) = #{sym.name}"
+        offset += sym.name.length
+      end
+      if (offset % 4) != 0
+        offset += 4 - (offset % 4)
+      end
+      symtab.entries << sym
+    end
+    symtab
+  end
+  def decode_mod_info(raw)
+    rpc = RpcHeader.new(raw[0,36])
+    if (rpc.type != 1) || rpc.event_type != 0 # reply, no event
+      puts "whoa! unknown MODTAB packet!"
+      puts raw.unpack("H*")[0] # hexdump it
+      puts "END OF ERROR PACKET"
+      raise "unknown MODTAB"
+    end
+    raw = raw[36..-1]
+    #cheat! cheat! this will fail!!!
+    #TODO: get all the infos
+    Struct::CheapModuleOffsets.new(raw[0x30, 4].unpack("N")[0], raw[0x40, 4].unpack("N")[0], raw[0x50, 4].unpack("N")[0])
+  end
+  def get_mem()
+    
+  end
+  def get_regs(rx=35, count=1, type=:int)
+    # must we use tool 0x01c161c0 ?
+    decode_regs(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['REGS_GET'], [
+            2, 0, 0, # WDB_CORE
+            (type == :int ? 0 : 1),
+            3, # ctx type = task
+            1, 1, 0x00ec2128, # magic arguments, of length 1, 1 (silly duplication)
+            0, #options
+            rx * 4, # register base
+            count * 4, # size
+            0 # param
+          ].pack("N*"))))
+  end
+  def decode_regs(raw)
+    # ugh, must make this a funciton soon
+    rpc = RpcHeader.new(raw[0,36])
+    if (rpc.type != 1) || rpc.event_type != 0 || rpc.error_code != 0 # reply, no event
+      puts "whoa! unknown REGS packet!"
+      puts raw.unpack("H*")[0] # hexdump it
+      puts "END OF ERROR PACKET"
+      raise "unknown REGS"
+    end
+    raw = raw[36..-1]
+    # options, source, dest, length = 4, skip them
+    raw = raw[16..-1]
+    return raw.unpack("H*")
+    # naw...
+    raw.unpack("N*")
+    if raw.length == 1
+      raw[0]
+    else
+      raw
+    end
   end
   def memalign(bound, size)
     #FIXME: this should not be hard coded
@@ -128,4 +230,35 @@ class WdbCore
   def get_mem
     [2,0,0].pack "N*"
   end
+end
+
+Struct.new("CheapModuleOffsets", :text, :data, :bss)
+
+class Symtab
+  attr_accessor  :index, :more_coming, :entries
+  def initialize(index=0, more=false, entries=[])
+    @index = index
+    @more_coming = more
+    @entries = entries
+  end
+end
+
+class SymbolInfo
+  attr_accessor :next, :id, :value, :ref, :type, :group, :small_unk, :addr_unk, :name
+  def next?
+    self.next < 0x352d00
+  end
+end
+
+class RpcHeader < MemStruct
+  default_encoding :big_endian
+  int :sequence, :little_endian
+  int :type
+  int :reply_to
+  int :status
+  int :verifier
+  int :event_type
+  int :checksum
+  int :packet_size
+  int :error_code
 end
