@@ -118,15 +118,7 @@ class Wdb
           ].pack("N*")))) # hope that the args are all ints...
   end
   def decode_symtab(raw)
-    # check the header
-    rpc = RpcHeader.new(raw[0,36])
-    if (rpc.type != 1) || rpc.event_type != 0 # reply, no event
-      puts "whoa! unknown SYMTAB packet!"
-      puts raw.unpack("H*")[0] # hexdump it
-      puts "END OF ERROR PACKET"
-      raise "unknown SYMTAB"
-    end
-    raw = raw[36..-1]
+    raw = strip_header(raw)
     symtab = Symtab.new
     symtab.index = raw[0,4].unpack("N")[0]
     symtab.more_coming = (raw[4,4].unpack("N")[0] != 0)
@@ -158,15 +150,18 @@ class Wdb
     end
     symtab
   end
-  def decode_mod_info(raw)
+  def strip_header(raw)
     rpc = RpcHeader.new(raw[0,36])
-    if (rpc.type != 1) || rpc.event_type != 0 # reply, no event
-      puts "whoa! unknown MODTAB packet!"
+    if (rpc.type != 1) || rpc.event_type != 0 || (rpc.error_code != 0 && rpc.error_code != 0x4000) # reply, no event
+      puts "whoa! unknown response packet!"
       puts raw.unpack("H*")[0] # hexdump it
       puts "END OF ERROR PACKET"
-      raise "unknown MODTAB"
+      raise "Error in packet!"
     end
-    raw = raw[36..-1]
+    raw[36..-1]
+  end
+  def decode_mod_info(raw)
+    raw = strip_header(raw)
     #cheat! cheat! this will fail!!!
     #TODO: get all the infos
     Struct::CheapModuleOffsets.new(raw[0x30, 4].unpack("N")[0], raw[0x40, 4].unpack("N")[0], raw[0x50, 4].unpack("N")[0])
@@ -200,15 +195,7 @@ class Wdb
           ].pack("N*")))
   end
   def decode_regs(raw)
-    # ugh, must make this a funciton soon
-    rpc = RpcHeader.new(raw[0,36])
-    if (rpc.type != 1) || rpc.event_type != 0 || rpc.error_code != 0 # reply, no event
-      puts "whoa! unknown REGS packet!"
-      puts raw.unpack("H*")[0] # hexdump it
-      puts "END OF ERROR PACKET"
-      raise "unknown REGS"
-    end
-    raw = raw[36..-1]
+    raw = strip_header(raw)
     # options, source, dest, length = 4, skip them
     raw = raw[16..-1]
     raw =  raw.unpack("H*")
@@ -221,15 +208,7 @@ class Wdb
     end
   end
   def unwrap_xfer(raw)
-    # ugh, must make this a funciton soon
-    rpc = RpcHeader.new(raw[0,36])
-    if (rpc.type != 1) || rpc.event_type != 0 || rpc.error_code != 0 # reply, no event
-      puts "whoa! unknown XFER packet!"
-      puts raw.unpack("H*")[0] # hexdump it
-      puts "END OF ERROR PACKET"
-      raise "unknown XFER"
-    end
-    raw[52..-1]
+    strip_header(raw)[16..-1]
   end
   def memalign(bound, size)
     #FIXME: this should not be hard coded
@@ -264,16 +243,9 @@ class Wdb
           2, 0, 0 # WDB_CORE
         ].pack("N*") + 
           Xdr.flatten(str)))
-      
-    # ugh, must make this a funciton soon
+    
     rpc = RpcHeader.new(raw[0,36])
-    if (rpc.type != 1) || rpc.event_type != 0 || (rpc.error_code != 0 && rpc.error_code != 0x4000) # reply, no event
-      puts "whoa! unknown GOPHER packet!"
-      puts raw.unpack("H*")[0] # hexdump it
-      puts "END OF ERROR PACKET"
-      raise "unknown GOPHER"
-    end
-    raw = raw[36..-1]
+    raw = strip_header(raw)
     # just shove in all the data
     WdbGopherResults.new(rpc.error_code == 0x4000, raw[16..-1])
   end
