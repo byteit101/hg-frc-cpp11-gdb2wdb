@@ -60,6 +60,10 @@ class WdbGdbMusher
     @wdb.get_regs(thread_id, 35, 1)
   end
   
+  def read_memory(addr, size)
+    @wdb.get_mem(addr, size)
+  end
+  
   def close
     wdb.disconnect
   end

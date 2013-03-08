@@ -92,7 +92,7 @@ loop do
       puts str
       client.put_ok
     elsif str.start_with? "Offsets"
-      client.put_gdb_str(sprintf "TextSeg=%x;DataSeg=%x", wdb_mush.mod_offsets.text, wdb_mush.mod_offsets.data)
+      client.put_gdb_str("TextSeg=#{wdb_mush.mod_offsets.text.to_s 16};DataSeg=#{wdb_mush.mod_offsets.data.to_s 16}")
     elsif str == "TStatus" #tracing status
       client.put_gdb_str("T0")
     elsif str == "TfV"
@@ -131,7 +131,15 @@ loop do
     if r >= 0x40
       r = gdb_to_wdb[r]
     end
-    client.put_gdb_str(wdb_mush.get_r_hex(thread_id, r))
+    res = (wdb_mush.get_r_hex(thread_id, r))
+    if r == 35
+      #TODO: why does GDB not relocate this?
+      res = (res.to_i(16) - wdb_mush.mod_offsets.text).to_s(16).rjust(8, '0')
+    end
+    client.put_gdb_str(res)
+  elsif str.start_with? "m" # memory. read. mADDR_TO_READ,SIZE
+    bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
+    client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
   elsif str.start_with? "vKill"
     client.put_ok
   else

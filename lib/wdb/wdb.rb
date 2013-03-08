@@ -171,8 +171,13 @@ class Wdb
     #TODO: get all the infos
     Struct::CheapModuleOffsets.new(raw[0x30, 4].unpack("N")[0], raw[0x40, 4].unpack("N")[0], raw[0x50, 4].unpack("N")[0])
   end
-  def get_mem()
-    
+  def get_mem(addr, length)
+    unwrap_xfer(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_READ'], [
+            2, 0, 0, # WDB_CORE
+            0, # options
+            addr, length, 
+            0 # param. this is never zero in WindRiver stuff. No iea what it could be
+          ].pack("N*"))))
   end
   def get_regs(thread_id, rx=35, count=1, type=:int)
     # must we use tool 0x01c161c0 ?
@@ -214,6 +219,17 @@ class Wdb
     else
       raw
     end
+  end
+  def unwrap_xfer(raw)
+    # ugh, must make this a funciton soon
+    rpc = RpcHeader.new(raw[0,36])
+    if (rpc.type != 1) || rpc.event_type != 0 || rpc.error_code != 0 # reply, no event
+      puts "whoa! unknown XFER packet!"
+      puts raw.unpack("H*")[0] # hexdump it
+      puts "END OF ERROR PACKET"
+      raise "unknown XFER"
+    end
+    raw[52..-1]
   end
   def memalign(bound, size)
     #FIXME: this should not be hard coded
