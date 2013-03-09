@@ -53,17 +53,12 @@ end
 server = TCPServer.new 2345
 
 wdb_mush = WdbGdbMusher.new
-puts "Listening for GDB..."
-#puts "Gopher:"
-#puts wdb_mush.wdb.exec_gopher("0x2feaac * +64 * { <-28 ! <+0 +48 @> <+44 *{$ 0}> <+152 @> <+112 @> <+148 @> <+448+140 @> > *}").unpack("H*")
 puts "Searching for thead"
 thread_id = wdb_mush.get_thread_id
-
 puts "enabling debug mode..."
 wdb_mush.debug_mode = true
-puts "IP HEX: "
-puts "sigh, now I need to find the task ID...."
-p wdb_mush.get_ip_hex(thread_id)
+puts "Listening for GDB..."
+
 client = server.accept
 begin
 loop do
@@ -81,7 +76,7 @@ loop do
     if str.start_with? "Supported"
       client.put_gdb_str("PacketSize=1000")
     elsif str.start_with? "C" #current thread
-      client.put_gdb_str("QC1451")
+      client.put_gdb_str("QC#{thread_id.to_s 16}")
     elsif str.start_with? "Attached"
       client.put_gdb_str("0")
     elsif str.start_with? "Symbol::"
@@ -113,8 +108,11 @@ loop do
     client.put_gdb_str("vCont;c;s;t")
   elsif str.start_with? "vCont" # step, continue, etc
     str = str[6..-1]
-    if str.star_with? "s" #step
-      wdb_mush.step(0)
+    if str == "s" #step
+      wdb_mush.step(thread_id)
+      client.put_gdb_str("S05") #signal 5 (TRAP)
+    elsif str == "c" #continue
+      wdb_mush.continue(thread_id)
       client.put_gdb_str("S05") #signal 5 (TRAP)
     else
       puts "Unknown vCont!"
@@ -125,7 +123,7 @@ loop do
   elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
     r = str[1..-1].to_i(16)
     # name  mem gdb
-    # msr    32 41 
+    # msr    32 41
     # lr     33 43
     # ctr    34 44
     # pc/eip 35 40
@@ -158,8 +156,8 @@ loop do
     puts str
   end
 end
-client.close
 ensure
+  client.close
+  wdb_mush.debug_mode = false
   wdb_mush.close
 end
- 

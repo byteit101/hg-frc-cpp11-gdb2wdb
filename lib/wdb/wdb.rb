@@ -82,6 +82,19 @@ class Wdb
     "THREAD_INFO_SET" => 120,
     "THREAD_INFO_GET" => 121
   }
+  CTX_TYPES = {
+    0 => :system,
+    1 => :group,
+    2 => :any,
+    3 => :task,
+    4 => :any_task,
+    5 => :interrupt,
+    6 => :any_interrupt,
+    7 => :protect_domain,
+    8 => :process,
+    9 => :rtp,
+    10 => :type_num
+  }
   def initialize(host)
     @core = WdbCore.new
     @sock = BlockingUDPSocket.new
@@ -139,7 +152,7 @@ class Wdb
       if sym.name == 0
         sym.name = ""
       else
-        sym.name = raw[offset += 4, sym.name-1] #ignore the trailing \0. 
+        sym.name = raw[offset += 4, sym.name-1] #ignore the trailing \0.
         # puts "sym.name (data) = #{sym.name}"
         offset += sym.name.length
       end
@@ -170,7 +183,7 @@ class Wdb
     unwrap_xfer(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_READ'], [
             2, 0, 0, # WDB_CORE
             0, # options
-            addr, length, 
+            addr, length,
             0 # param. this is never zero in WindRiver stuff. No iea what it could be
           ].pack("N*"))))
   end
@@ -189,10 +202,10 @@ class Wdb
   end
   def thread_break(thread_id)
     send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
-            2, 0, 0, # WDB_CORE
-            3, # context = task
-            1, 1, thread_id # num of arguments, num of arguments, argument
-          ].pack("N*")))
+          2, 0, 0, # WDB_CORE
+          3, # context = task
+          1, 1, thread_id # num of arguments, num of arguments, argument
+        ].pack("N*")))
   end
   def decode_regs(raw)
     raw = strip_header(raw)
@@ -241,13 +254,32 @@ class Wdb
     # must we use tool 0x01c161c0 ?
     raw = send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVALUATE_GOPHER'], [
           2, 0, 0 # WDB_CORE
-        ].pack("N*") + 
+        ].pack("N*") +
           Xdr.flatten(str)))
-    
+
     rpc = RpcHeader.new(raw[0,36])
     raw = strip_header(raw)
     # just shove in all the data
     WdbGopherResults.new(rpc.error_code == 0x4000, raw[16..-1])
+  end
+  def step(thread, lower, uppper)
+    send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
+          2, 0, 0 # WDB_CORE
+          3, # its a task!
+          1, 1, thread, # argument array
+          lower, upper # and now our bounds
+        ].pack("N*")))
+  end
+  def continue(thread)
+    send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CONT'], [
+          2, 0, 0 # WDB_CORE
+          3, # its a task!
+          1, 1, thread, # argument array
+        ].pack("N*")))
+  end
+  def decode_event(raw)
+    bed = BasicEventData.new(*raw[0,16].unpack("N*"))
+    bed.ctx_type = CTX_TYPES[bed.ctx_type] || bed.ctx_type
   end
 end
 
@@ -293,3 +325,5 @@ class RpcHeader < MemStruct
   int :packet_size
   int :error_code
 end
+
+BasicEventData = Struct.new("BasicEventData", :unknown, :ctx_type, :ctx_id, :parent_id)
