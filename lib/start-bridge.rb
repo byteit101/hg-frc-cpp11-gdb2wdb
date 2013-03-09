@@ -109,6 +109,17 @@ loop do
     client.put_gdb_str("S05") #signal 5 (TRAP)
   elsif str == "!"
     client.put_ok
+  elsif str == "vCont?"
+    client.put_gdb_str("vCont;c;s;t")
+  elsif str.start_with? "vCont" # step, continue, etc
+    str = str[6..-1]
+    if str.star_with? "s" #step
+      wdb_mush.step(0)
+      client.put_gdb_str("S05") #signal 5 (TRAP)
+    else
+      puts "Unknown vCont!"
+      puts "vCont;" + str
+    end
   elsif str == "g" # registers! oh yea, no ow
     client.put_gdb_str(wdb_mush.get_r_hex(thread_id, 0,4))
   elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
