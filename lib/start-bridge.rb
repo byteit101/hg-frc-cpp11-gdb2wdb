@@ -36,7 +36,7 @@ class TCPSocket
       if str.match GDB_PACKET
         STDOUT.puts "<- #{validate_gdb_packet(str)}"
         return str
-      elsif str == "+"
+      elsif str == "\x03" or str == "+"
         return str
       end
     end
@@ -68,10 +68,12 @@ begin
       puts "FAIL FAIL FAIL!!!!"
       exit -1
     end
-    str = validate_gdb_packet(str) unless str == "+"
+    str = validate_gdb_packet(str) unless str == "+" or str == "\x03"
     client.send "+", 0 if str
     if str == "+"
-
+    elsif str == "\x03"
+      wdb_mush.break(thread_id)
+      client.put_gdb_str("S05") #signal 05 (TRAP)
     elsif str.start_with? "q"
       str = str[1..-1]
       if str.start_with? "Supported"
@@ -103,7 +105,8 @@ begin
     elsif str.start_with? "H" # set the current thread, G is general, C is continue, i think
       client.put_gdb_str("OK")
     elsif str == "?" # what is the status?
-      client.put_gdb_str("S05") #signal 5 (TRAP)
+      wdb_mush.break(thread_id)
+      client.put_gdb_str("S05") #signal 05 (TRAP
     elsif str == "!"
       client.put_ok
     elsif str == "vCont?"
@@ -125,7 +128,6 @@ begin
       client.put_gdb_str("S05") #signal 5 (TRAP)
     elsif str == "c" #continue
       wdb_mush.continue(thread_id)
-      client.put_gdb_str("S05") #signal 5 (TRAP)
     elsif str == "g" # registers! oh yea, no ow
       client.put_gdb_str(wdb_mush.get_r_hex(thread_id, 0,4))
     elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
@@ -161,6 +163,7 @@ begin
   end
 ensure
   client.close
+  wdb_mush.continue(thread_id)
   wdb_mush.debug_mode = false
   wdb_mush.close
 end

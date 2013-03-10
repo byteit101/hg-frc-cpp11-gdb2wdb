@@ -64,6 +64,10 @@ class WdbGdbMusher
     @wdb.get_mem(addr, size)
   end
 
+  def break(thread_id)
+    @wdb.thread_break(thread_id)
+  end
+  
   def step(thread_id, lower=0, upper=0)
     @wdb.step(thread_id, lower, upper)
   end

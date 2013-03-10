@@ -4,6 +4,8 @@ require_relative 'xdr'
 require_relative '../blocking_udp'
 require_relative '../mem_struct.rb'
 
+# TODO: if the error code is 0x8000, that means call get_event NOW!
+
 class OncRpc
   RPC_CALL = 0
   RPC_RESPONSE = 1
@@ -100,7 +102,11 @@ class Wdb
     @sock = BlockingUDPSocket.new
     @sock.bind("", 149501)
     @sock.filter do |inpkt|
-      [:input, :response][inpkt[4..7].unpack("N")[0]]
+      e = [:input, :response][inpkt[4..7].unpack("N")[0]]
+      if e == :input
+        puts "INPUT!"
+      end
+      e
     end
     @sock.connect host, 0x4321
     @seqn = 0 # start sequence number
@@ -109,6 +115,15 @@ class Wdb
     #puts "sending data"
     resp = @sock.send_blocking data, 0 #, "10.4.51.2", 0x4321
     #p resp
+  end
+  def send_with_event(data)
+    resp = strip_header(send(data))
+    evt_ping = @sock.recv_type :input
+    event_resp = strip_header(get_event)
+    WdbEventCollection.new(resp, evt_ping[20..23].unpack("N")[0], event_resp)
+  end
+  def get_event
+    send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENT_GET'], @core.get_mem)
   end
   def set_name(str)
     send OncRpc.wrap(@seqn += 1, 122,
@@ -169,6 +184,9 @@ class Wdb
       puts "whoa! unknown response packet!"
       puts raw.unpack("H*")[0] # hexdump it
       puts "END OF ERROR PACKET"
+      puts "type: #{rpc.type.to_s 16}"
+      puts "event type: #{rpc.event_type.to_s 16}"
+      puts "error code: #{rpc.error_code.to_s 16}"
       raise "Error in packet!"
     end
     raw[36..-1]
@@ -263,12 +281,13 @@ class Wdb
     WdbGopherResults.new(rpc.error_code == 0x4000, raw[16..-1])
   end
   def step(thread, lower, upper)
-    strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
+    res = send_with_event(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
           2, 0, 0, # WDB_CORE
           3, # its a task!
           1, 1, thread, # argument array
           lower, upper # and now our bounds
         ].pack("N*")))
+
   end
   def continue(thread)
     strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CONT'], [
@@ -296,6 +315,7 @@ end
 
 Struct.new("CheapModuleOffsets", :text, :data, :bss)
 WdbGopherResults = Struct.new("WdbGopherResults", :has_more, :data)
+WdbEventCollection = Struct.new("WdbEventCollection", :response, :event_type, :event_data)
 
 class Symtab
   attr_accessor  :index, :more_coming, :entries
