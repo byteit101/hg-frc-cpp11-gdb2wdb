@@ -5,6 +5,7 @@
 # target remote :2345
 # info symbol hex => function
 # info address function => hex
+# ifno file => symbol tables
 
 
 require 'socket'
@@ -61,101 +62,103 @@ puts "Listening for GDB..."
 
 client = server.accept
 begin
-loop do
-  str = client.get_gdb_str
-  if str == "-"
-    puts "FAIL FAIL FAIL!!!!"
-    exit -1
-  end
-  str = validate_gdb_packet(str) unless str == "+"
-  client.send "+", 0 if str
-  if str == "+"
-
-  elsif str.start_with? "q"
-    str = str[1..-1]
-    if str.start_with? "Supported"
-      client.put_gdb_str("PacketSize=1000")
-    elsif str.start_with? "C" #current thread
-      client.put_gdb_str("QC#{thread_id.to_s 16}")
-    elsif str.start_with? "Attached"
-      client.put_gdb_str("0")
-    elsif str.start_with? "Symbol::"
-      #client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
-      #client.put_gdb_str("qSymbol:FRC_UserProgram_StartupLibraryInit")
-      client.put_ok
-    elsif str.start_with? "Symbol:"
-      puts str
-      client.put_ok
-    elsif str.start_with? "Offsets"
-      client.put_gdb_str("TextSeg=#{wdb_mush.mod_offsets.text.to_s 16};DataSeg=#{wdb_mush.mod_offsets.data.to_s 16}")
-    elsif str == "TStatus" #tracing status
-      client.put_gdb_str("T0")
-    elsif str == "TfV"
-      client.put_gdb_str("")
-    elsif str == "TfP"
-      client.put_gdb_str("")
-    else
-      puts "Unknown Query!"
-      puts "q" + str
+  loop do
+    str = client.get_gdb_str
+    if str == "-"
+      puts "FAIL FAIL FAIL!!!!"
+      exit -1
     end
-  elsif str.start_with? "H" # set the current thread, G is general, C is continue, i think
-    client.put_gdb_str("OK")
-  elsif str == "?" # what is the status?
-    client.put_gdb_str("S05") #signal 5 (TRAP)
-  elsif str == "!"
-    client.put_ok
-  elsif str == "vCont?"
-    client.put_gdb_str("vCont;c;s;t")
-  elsif str.start_with? "vCont" # step, continue, etc
-    str = str[6..-1]
-    if str == "s" #step
+    str = validate_gdb_packet(str) unless str == "+"
+    client.send "+", 0 if str
+    if str == "+"
+
+    elsif str.start_with? "q"
+      str = str[1..-1]
+      if str.start_with? "Supported"
+        client.put_gdb_str("PacketSize=1000")
+      elsif str.start_with? "C" #current thread
+        client.put_gdb_str("QC#{thread_id.to_s 16}")
+      elsif str.start_with? "Attached"
+        client.put_gdb_str("0")
+      elsif str.start_with? "Symbol::"
+        #client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
+        #client.put_gdb_str("qSymbol:FRC_UserProgram_StartupLibraryInit")
+        client.put_ok
+      elsif str.start_with? "Symbol:"
+        puts str
+        client.put_ok
+      elsif str.start_with? "Offsets"
+        # BSS = baloney. why must I do this? is this a Gdb bug?
+        client.put_gdb_str("Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}")
+      elsif str == "TStatus" #tracing status
+        client.put_gdb_str("T0")
+      elsif str == "TfV"
+        client.put_gdb_str("")
+      elsif str == "TfP"
+        client.put_gdb_str("")
+      else
+        puts "Unknown Query!"
+        puts "q" + str
+      end
+    elsif str.start_with? "H" # set the current thread, G is general, C is continue, i think
+      client.put_gdb_str("OK")
+    elsif str == "?" # what is the status?
+      client.put_gdb_str("S05") #signal 5 (TRAP)
+    elsif str == "!"
+      client.put_ok
+    elsif str == "vCont?"
+      client.put_gdb_str("vCont;s")
+    elsif str.start_with? "vCont" # step, continue, etc
+      str = str[6..-1]
+      if str == "s" #step
+        wdb_mush.step(thread_id)
+        client.put_gdb_str("S05") #signal 5 (TRAP)
+      elsif str == "c" #continue
+        wdb_mush.continue(thread_id)
+        client.put_gdb_str("S05") #signal 5 (TRAP)
+      else
+        puts "Unknown vCont!"
+        puts "vCont;" + str
+      end
+    elsif str == "s" #step
       wdb_mush.step(thread_id)
       client.put_gdb_str("S05") #signal 5 (TRAP)
     elsif str == "c" #continue
       wdb_mush.continue(thread_id)
       client.put_gdb_str("S05") #signal 5 (TRAP)
+    elsif str == "g" # registers! oh yea, no ow
+      client.put_gdb_str(wdb_mush.get_r_hex(thread_id, 0,4))
+    elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
+      r = str[1..-1].to_i(16)
+      # name  mem gdb
+      # msr    32 41
+      # lr     33 43
+      # ctr    34 44
+      # pc/eip 35 40
+      # cr     36 42
+      # xer    37 45
+      gdb_to_wdb = {
+        0x41=>32,
+        0x43 => 33,
+        0x44 => 34,
+        0x40 => 35,
+        0x42 => 36,
+        0x45 => 37
+      }
+      if r >= 0x40
+        r = gdb_to_wdb[r]
+      end
+      client.put_gdb_str(wdb_mush.get_r_hex(thread_id, r))
+    elsif str.start_with? "m" # memory. read. mADDR_TO_READ,SIZE
+      bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
+      client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
+    elsif str.start_with? "vKill"
+      client.put_ok
     else
-      puts "Unknown vCont!"
-      puts "vCont;" + str
+      puts "Unknown packet!"
+      puts str
     end
-  elsif str == "g" # registers! oh yea, no ow
-    client.put_gdb_str(wdb_mush.get_r_hex(thread_id, 0,4))
-  elsif str.start_with? "p" #individual register. ex p40 = register 0x40. register 40 = Instruction pointer
-    r = str[1..-1].to_i(16)
-    # name  mem gdb
-    # msr    32 41
-    # lr     33 43
-    # ctr    34 44
-    # pc/eip 35 40
-    # cr     36 42
-    # xer    37 45
-    gdb_to_wdb = {
-      0x41=>32,
-      0x43 => 33,
-      0x44 => 34,
-      0x40 => 35,
-      0x42 => 36,
-      0x45 => 37
-    }
-    if r >= 0x40
-      r = gdb_to_wdb[r]
-    end
-    res = (wdb_mush.get_r_hex(thread_id, r))
-    if r == 35
-      #TODO: why does GDB not relocate this?
-      res = (res.to_i(16) - wdb_mush.mod_offsets.text).to_s(16).rjust(8, '0')
-    end
-    client.put_gdb_str(res)
-  elsif str.start_with? "m" # memory. read. mADDR_TO_READ,SIZE
-    bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
-    client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
-  elsif str.start_with? "vKill"
-    client.put_ok
-  else
-    puts "Unknown packet!"
-    puts str
   end
-end
 ensure
   client.close
   wdb_mush.debug_mode = false

@@ -201,7 +201,7 @@ class Wdb
           ].pack("N*"))))
   end
   def thread_break(thread_id)
-    send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
+    strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
           2, 0, 0, # WDB_CORE
           3, # context = task
           1, 1, thread_id # num of arguments, num of arguments, argument
@@ -262,8 +262,8 @@ class Wdb
     # just shove in all the data
     WdbGopherResults.new(rpc.error_code == 0x4000, raw[16..-1])
   end
-  def step(thread, lower, uppper)
-    send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
+  def step(thread, lower, upper)
+    strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
           2, 0, 0, # WDB_CORE
           3, # its a task!
           1, 1, thread, # argument array
@@ -271,7 +271,7 @@ class Wdb
         ].pack("N*")))
   end
   def continue(thread)
-    send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CONT'], [
+    strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CONT'], [
           2, 0, 0, # WDB_CORE
           3, # its a task!
           1, 1, thread, # argument array
