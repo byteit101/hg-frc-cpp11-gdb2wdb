@@ -264,7 +264,7 @@ class Wdb
   end
   def step(thread, lower, uppper)
     send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
-          2, 0, 0 # WDB_CORE
+          2, 0, 0, # WDB_CORE
           3, # its a task!
           1, 1, thread, # argument array
           lower, upper # and now our bounds
@@ -272,7 +272,7 @@ class Wdb
   end
   def continue(thread)
     send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CONT'], [
-          2, 0, 0 # WDB_CORE
+          2, 0, 0, # WDB_CORE
           3, # its a task!
           1, 1, thread, # argument array
         ].pack("N*")))
