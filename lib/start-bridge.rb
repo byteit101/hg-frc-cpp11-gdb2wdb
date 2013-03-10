@@ -110,18 +110,29 @@ begin
     elsif str == "!"
       client.put_ok
     elsif str == "vCont?"
-      client.put_gdb_str("vCont;s")
+      client.put_gdb_str("vCont;s;S;C;c;t")
     elsif str.start_with? "vCont" # step, continue, etc
-      str = str[6..-1]
-      if str == "s" #step
-        wdb_mush.step(thread_id)
-        client.put_gdb_str("S05") #signal 5 (TRAP)
-      elsif str == "c" #continue
-        wdb_mush.continue(thread_id)
-        client.put_gdb_str("S05") #signal 5 (TRAP)
-      else
-        puts "Unknown vCont!"
-        puts "vCont;" + str
+      str = str[5..-1]
+      mod_threads = []
+      # match ALL the requests!
+      str.scan(/;([sScCt])(:([a-fA-F0-9]+)){0,1}/) do |cmd, ignore_me, thread|
+        if thread == nil and mod_threads.include? thread_id
+          next
+        elsif thread == nil
+          thread = thread_id
+        else
+          thread = thread.to_i(16)
+        end
+        mod_threads << thread
+        if cmd == "s" #step
+          wdb_mush.step(thread)
+          client.put_gdb_str("S05") #signal 5 (TRAP)
+        elsif cmd == "c" #continue
+          wdb_mush.continue(thread)
+        else
+          puts "Unknown vCont!"
+          puts "vCont;" + str
+        end
       end
     elsif str == "s" #step
       wdb_mush.step(thread_id)

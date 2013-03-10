@@ -102,11 +102,7 @@ class Wdb
     @sock = BlockingUDPSocket.new
     @sock.bind("", 149501)
     @sock.filter do |inpkt|
-      e = [:input, :response][inpkt[4..7].unpack("N")[0]]
-      if e == :input
-        puts "INPUT!"
-      end
-      e
+      [:input, :response][inpkt[4..7].unpack("N")[0]]
     end
     @sock.connect host, 0x4321
     @seqn = 0 # start sequence number
