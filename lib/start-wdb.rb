@@ -7,6 +7,7 @@ class WdbGdbMusher
   attr_reader :wdb
   def initialize
     @wdb = Wdb.new "10.4.51.2"
+    @breakpts = []
     @wdb.connect
     puts "Connected to vxWorks. Loading Symbols..."
     # load the important stuff: get the symbols
@@ -67,7 +68,7 @@ class WdbGdbMusher
   def break(thread_id)
     @wdb.thread_break(thread_id)
   end
-  
+
   def step(thread_id, lower=0, upper=0)
     @wdb.step(thread_id, lower, upper)
   end
@@ -76,7 +77,28 @@ class WdbGdbMusher
     @wdb.continue(thread_id)
   end
 
+  def add_breakpoint(addr)
+    @wdb.create_breakpoint(addr).tap{|id| @breakpts << id}
+  end
+
+  def delete_breakpoint(id)
+    @breakpts -= [id]
+    @wdb.delete_breakpoint(id)
+  end
+
+  def async_get_events(&block)
+    Thread.new do
+      loop {
+        @wdb.get_event_call
+        block.call(@wdb.get_event)
+      }
+    end
+  end
+
   def close
+    @breakpts.each do |id|
+      @wdb.delete_breakpoint(id)
+    end
     wdb.disconnect
   end
 end

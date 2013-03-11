@@ -101,8 +101,13 @@ class Wdb
     @core = WdbCore.new
     @sock = BlockingUDPSocket.new
     @sock.bind("", 149501)
+    @expecting_event=false
     @sock.filter do |inpkt|
-      [:input, :response][inpkt[4..7].unpack("N")[0]]
+      if @expecting_event
+        :response
+      else
+        [:input, :response][inpkt[4..7].unpack("N")[0]]
+      end
     end
     @sock.connect host, 0x4321
     @seqn = 0 # start sequence number
@@ -113,10 +118,15 @@ class Wdb
     #p resp
   end
   def send_with_event(data)
+    @expecting_event = true
     resp = strip_header(send(data))
-    evt_ping = @sock.recv_type :input
+    evt_ping = @sock.recv_type :response
+    @expecting_event = false
     event_resp = strip_header(get_event)
     WdbEventCollection.new(resp, evt_ping[20..23].unpack("N")[0], event_resp)
+  end
+  def get_event_call
+    @sock.recv_type :input
   end
   def get_event
     send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENT_GET'], @core.get_mem)
@@ -295,6 +305,21 @@ class Wdb
   def decode_event(raw)
     bed = BasicEventData.new(*raw[0,16].unpack("N*"))
     bed.ctx_type = CTX_TYPES[bed.ctx_type] || bed.ctx_type
+  end
+  def create_breakpoint(addr)
+    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENTPOINT_ADD'], @core.get_mem + [
+            3, #its a breakpoint
+            3, 3, addr, 0, 0, # list of 3 arguments
+            3, 1, 1, 0, # its a task, with 1 argument
+            6, # Stop and phone home
+            0, 0, 0 # magic arguments
+          ].pack("N*")))).unpack("N")[0]
+  end
+  def delete_breakpoint(id)
+    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENTPOINT_DELETE'], @core.get_mem + [
+            3, #its a thread breakpoint
+            id
+          ].pack("N*")))).unpack("N")[0]
   end
 end
 

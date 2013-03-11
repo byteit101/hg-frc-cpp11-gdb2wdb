@@ -60,8 +60,13 @@ puts "enabling debug mode..."
 wdb_mush.debug_mode = true
 puts "Listening for GDB..."
 
+brkmap = {}
+
 client = server.accept
 begin
+  wdb_mush.async_get_events() do |data|
+    client.put_gdb_str("S05") # Breakpoint default!
+  end
   loop do
     str = client.get_gdb_str
     if str == "-"
@@ -165,6 +170,13 @@ begin
     elsif str.start_with? "m" # memory. read. mADDR_TO_READ,SIZE
       bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
       client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
+    elsif str.start_with? "Z0"
+      addr = str.match(/Z0,([a-fA-F0-9]+),/)[1].to_i(16)
+      brkmap[addr] = wdb_mush.add_breakpoint(addr)
+      client.put_ok
+    elsif str.start_with? "z0"
+      wdb_mush.delete_breakpoint(brkmap[str.match(/z0,([a-fA-F0-9]+),/)[1].to_i(16)])
+      client.put_ok
     elsif str.start_with? "vKill"
       client.put_ok
     else
