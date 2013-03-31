@@ -169,13 +169,11 @@ class Wdb
       sym.small_unk = raw[offset += 4, 4].unpack("N")[0]
       sym.addr_unk = raw[offset += 4, 4].unpack("N")[0]
       sym.name = raw[offset += 4, 4].unpack("N")[0]
-      #puts "sym.name (length) = #{sym.name}; offset = #{offset}"
       if sym.name == 0
         sym.name = ""
       else
         sym.name = raw[offset += 4, sym.name-1] #ignore the trailing \0.
-        # puts "sym.name (data) = #{sym.name}"
-        offset += sym.name.length
+        offset += sym.name.length + 1  #don't forget the null terminator
       end
       if (offset % 4) != 0
         offset += 4 - (offset % 4)
