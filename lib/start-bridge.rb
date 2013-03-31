@@ -60,13 +60,17 @@ puts "enabling debug mode..."
 wdb_mush.debug_mode = true
 puts "Listening for GDB..."
 
+offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}"
+
 brkmap = {}
 
 client = server.accept
+
 begin
   wdb_mush.async_get_events() do |data|
     client.put_gdb_str("S05") # Breakpoint default!
   end
+  wdb_mush.break(thread_id)
   loop do
     str = client.get_gdb_str
     if str == "-"
@@ -86,7 +90,7 @@ begin
       elsif str.start_with? "C" #current thread
         client.put_gdb_str("QC#{thread_id.to_s 16}")
       elsif str.start_with? "Attached"
-        client.put_gdb_str("0")
+        client.put_gdb_str("1")
       elsif str.start_with? "Symbol::"
         #client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
         #client.put_gdb_str("qSymbol:FRC_UserProgram_StartupLibraryInit")
@@ -96,13 +100,19 @@ begin
         client.put_ok
       elsif str.start_with? "Offsets"
         # BSS = baloney. why must I do this? is this a Gdb bug?
-        client.put_gdb_str("Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}")
+        client.put_gdb_str(offset_desc)
       elsif str == "TStatus" #tracing status
         client.put_gdb_str("T0")
       elsif str == "TfV"
         client.put_gdb_str("")
       elsif str == "TfP"
         client.put_gdb_str("")
+      elsif str == "fThreadInfo" # first thread info
+        client.put_gdb_str("m #{thread_id.to_s 16}") # one thread. separate multiple with commas
+      elsif str == "sThreadInfo" # more thread info
+        client.put_gdb_str("l") # l = last
+      elsif str.start_with? "ThreadExtraInfo"
+        client.put_gdb_str("Kernel Task") # TODO: get more exciting thread info
       else
         puts "Unknown Query!"
         puts "q" + str
@@ -110,7 +120,6 @@ begin
     elsif str.start_with? "H" # set the current thread, G is general, C is continue, i think
       client.put_gdb_str("OK")
     elsif str == "?" # what is the status?
-      wdb_mush.break(thread_id)
       client.put_gdb_str("S05") #signal 05 (TRAP
     elsif str == "!"
       client.put_ok
@@ -169,13 +178,22 @@ begin
       client.put_gdb_str(wdb_mush.get_r_hex(thread_id, r))
     elsif str.start_with? "m" # memory. read. mADDR_TO_READ,SIZE
       bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
-      client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
+      if bits[1].to_i(16) < 0x40 # silly eclipse
+        client.put_gdb_str(wdb_mush.get_r_hex(thread_id, bits[1].to_i(16)/4, bits[2].to_i(16)/4))
+      else
+        client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
+      end
     elsif str.start_with? "Z0"
       addr = str.match(/Z0,([a-fA-F0-9]+),/)[1].to_i(16)
       brkmap[addr] = wdb_mush.add_breakpoint(addr)
       client.put_ok
     elsif str.start_with? "z0"
       wdb_mush.delete_breakpoint(brkmap[str.match(/z0,([a-fA-F0-9]+),/)[1].to_i(16)])
+      client.put_ok
+    elsif str.start_with? "T"  #is thread alive
+      # CHEAT CHEAT!!!! TODO: fix
+      client.put_ok
+    elsif str == "D"
       client.put_ok
     elsif str.start_with? "vKill"
       client.put_ok
