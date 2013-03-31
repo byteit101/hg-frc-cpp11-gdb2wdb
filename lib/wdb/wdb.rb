@@ -197,9 +197,33 @@ class Wdb
   end
   def decode_mod_info(raw)
     raw = strip_header(raw)
-    #cheat! cheat! this will fail!!!
-    #TODO: get all the infos
-    Struct::CheapModuleOffsets.new(raw[0x30, 4].unpack("N")[0], raw[0x40, 4].unpack("N")[0], raw[0x50, 4].unpack("N")[0])
+    more = !raw[0x28, 4].unpack("N")[0].zero?
+    text = raw[0x30, 4].unpack("N")[0]
+    data = raw[0x40, 4].unpack("N")[0]
+    bss = raw[0x50, 4].unpack("N")[0]
+    mod_name_len = raw[96, 4].unpack("N")[0]
+    if (mod_name_len % 4) != 0
+      mod_name_len += (4 - (mod_name_len % 4))
+    end
+    # skip over all the fixed length info + string length
+    raw = raw[(100 + mod_name_len)..-1]
+    offset = 0
+    res  = []
+    until raw[offset, 4].unpack("N")[0].zero?
+      offset += 4
+      sec_off = raw[offset += 16, 4].unpack("N")[0]
+      namelen = raw[offset += 16, 4].unpack("N")[0]
+      name = ""
+      unless namelen == 0
+        name = raw[offset += 4, namelen-1] #ignore the trailing \0.
+        offset += name.length + 1  #don't forget the null terminator
+      end
+      if (offset % 4) != 0
+        offset += 4 - (offset % 4)
+      end
+      res << Struct::SectionOffsets.new(name, sec_off)
+    end
+    Moduletab.new(more, text, data, bss, res)
   end
   def get_mem(addr, length)
     unwrap_xfer(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_READ'], [
@@ -210,6 +234,7 @@ class Wdb
           ].pack("N*"))))
   end
   def get_regs(thread_id, rx=35, count=1, type=:int)
+    rsize = (type == :int ? 4 : 8)
     # must we use tool 0x01c161c0 ?
     decode_regs(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['REGS_GET'], [
             2, 0, 0, # WDB_CORE
@@ -217,8 +242,8 @@ class Wdb
             3, # ctx type = task
             1, 1, thread_id, # task to get, of length 1, 1 (silly duplication)
             0, #options
-            rx * 4, # register base
-            count * 4, # size
+            rx * rsize, # register base
+            count * rsize, # size
             0 # param
           ].pack("N*"))))
   end
@@ -332,7 +357,8 @@ class WdbCore
   end
 end
 
-Struct.new("CheapModuleOffsets", :text, :data, :bss)
+Struct.new("SectionOffsets", :name, :offset)
+Moduletab = Struct.new("Moduletab", :has_more, :text, :data, :bss, :sections)
 WdbGopherResults = Struct.new("WdbGopherResults", :has_more, :data)
 WdbEventCollection = Struct.new("WdbEventCollection", :response, :event_type, :event_data)
 

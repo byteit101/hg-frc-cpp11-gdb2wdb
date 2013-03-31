@@ -3,7 +3,7 @@
 require_relative 'wdb/wdb'
 
 class WdbGdbMusher
-  attr_accessor :mod_offsets
+  attr_reader :mod_offsets
   attr_reader :wdb
   def initialize
     @wdb = Wdb.new "10.4.51.2"
@@ -31,6 +31,22 @@ class WdbGdbMusher
     syms = syms[0]
     puts "Found 'FRC_UserProgram_StartupLibraryInit' in the module with id 0x%x" % syms.ref
     @mod_offsets = @wdb.get_module(syms.ref)
+
+    while @mod_offsets.has_more
+      nr = @wdb.get_module(syms.ref)
+      
+      # some names are spread out in multiple responses.
+      if nr.sections.first && nr.sections.first.offset == @mod_offsets.sections.last.offset
+        @mod_offsets.sections.last.name += nr.sections.first.name
+        nr.sections.delete_at(0)
+      end
+
+      # append to the master list
+      nr.sections.each do |x|
+        @mod_offsets.sections << x
+      end
+      @mod_offsets.has_more = nr.has_more
+    end
   end
 
   def debug_mode=(value)
@@ -39,7 +55,7 @@ class WdbGdbMusher
     value
   end
 
-  def get_thread_id(name="MY_TESTING")
+  def get_thread_id(name="FRC_RobotTask")
     res = @wdb.exec_gopher(WdbGopherStrings::GET_THREADS_SHORT) # format \x01string\0\x00threadid
     # this is so cheating. TODO: make it better
     chop = res[res.index(name)+name.length+1, 5]
@@ -53,8 +69,8 @@ class WdbGdbMusher
     chop[1,4].unpack("N")[0].tap{|i| puts "Found Thread ID of '#{name}': 0x#{i.to_s(16)}"}
   end
 
-  def get_r_hex(thread_id, r=4, count=1)
-    @wdb.get_regs(thread_id, r, count)
+  def get_r_hex(thread_id, r=4, count=1, is_int=true)
+    @wdb.get_regs(thread_id, r, count, (is_int ? :int : :fpu))
   end
 
   def get_ip_hex(thread_id)
