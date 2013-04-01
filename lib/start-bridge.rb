@@ -76,7 +76,7 @@ offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_off
 puts " Using #{core_dir}/cRIOFRC_vxWorks as cRIO corefile..."
 xml_segs = "<library-list><library name=\"cRIOFRC_vxWorks\">"
 `powerpc-wrs-vxworks-readelf -S #{core_dir}/cRIOFRC_vxWorks`.scan(/\[[ 0-9]{2}\] \.[\w\._\$]* *[A-Z]* *[0-9a-fA-F]{8} ([0-9a-fA-F]{1,9}) [0-9a-fA-F]{1,9} [0-9]{2} *[WZMSILGTExOop]*A[WZMSILGTExOop]* *[0-9]*/) do |offset|
-  xml_segs << "<section address=\"0x#{offset[0].rjust(8, '0')}\"/>"
+  xml_segs << "<section address=\"0x00000000\"/>"
 end
 xml_segs << "</library><library name=\"FRC_UserProgram.out\">"
 wdb_mush.mod_offsets.sections.each do |sec|
