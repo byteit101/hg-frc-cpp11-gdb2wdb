@@ -97,6 +97,12 @@ class Wdb
     9 => :rtp,
     10 => :type_num
   }
+  MEMORY_OPTIONS = {
+    :force_write => 0x1, # aka remove write protections
+    :copy_by_uint8 => 0x10000000,
+    :copy_by_uint16 => 0x20000000,
+    :copy_by_uint32 => 0x40000000,
+  }
   def initialize(host)
     @core = WdbCore.new
     @sock = BlockingUDPSocket.new
@@ -225,12 +231,30 @@ class Wdb
     end
     Moduletab.new(more, text, data, bss, res)
   end
+  def set_mem(addr, data)
+    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_WRITE'], [
+            2, 0, 0, # WDB_CORE
+            1, # options
+            data.length,
+            addr,
+            data.length
+          ].pack("N*") + data)))
+  end
+  def fill_mem(addr, size, pattern=0)
+    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_FILL'], [
+            2, 0, 0, # WDB_CORE
+            1, # options
+            addr,
+            size,
+            pattern
+          ].pack("N*"))))
+  end
   def get_mem(addr, length)
     unwrap_xfer(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_READ'], [
             2, 0, 0, # WDB_CORE
             0, # options
             addr, length,
-            0 # param. this is never zero in WindRiver stuff. No iea what it could be
+            0 # param. this is never zero in WindRiver stuff. No idea what it could be
           ].pack("N*"))))
   end
   def get_regs(thread_id, rx=35, count=1, type=:int)
@@ -246,6 +270,9 @@ class Wdb
             count * rsize, # size
             0 # param
           ].pack("N*"))))
+  end
+  def thread_new(name, entry_point, priority=100, stack_size=0x20000, options=0x10)
+
   end
   def thread_break(thread_id)
     strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
@@ -272,7 +299,7 @@ class Wdb
   end
   def memalign(bound, size)
     #FIXME: this should not be hard coded
-    direct_call(0x001b86d4, [bound, size])
+    strip_header(direct_call(0x001b86d4, [bound, size])).tap{|x| puts "Got memalign()=> #{x.inspect}"}.unpack("N")[0]
   end
   def direct_call(entry_point, args)
     send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['DIRECT_CALL'], @core.get_mem + [
@@ -285,6 +312,31 @@ class Wdb
         args.length #don't ask me why its twice, it just is!
       ].pack("N*") + args.pack("N*")) # hope that the args are all ints...
     #001b86d4
+  end
+  def call_ctors(_ctors)
+    call_task_func(0xd3274, [_ctors])
+  end
+  def call_task_func(entry_point, args, priority=100, stack_size=0, options=0)
+    func_call(3, #3 for task
+      [
+        entry_point,
+        args.length,
+        args.length
+      ] + args + [
+        0, # protected domain id (none = 0)
+        priority,
+        stack_size,
+        options
+      ]
+    )
+  end
+  def func_call(type, args)
+    send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['FUNC_CALL'], @core.get_mem + [
+        type, # System context
+        0, # string length
+        0, 0, 0, # redirect stdin, out, err
+        0, #base addr
+      ].pack("N*") + args.pack("N*")) # hope that the args are all ints...
   end
   def exec_gopher(str)
     data = "".force_encoding("binary")

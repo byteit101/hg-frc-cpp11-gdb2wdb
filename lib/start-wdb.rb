@@ -5,10 +5,14 @@ require_relative 'wdb/wdb'
 class WdbGdbMusher
   attr_reader :mod_offsets
   attr_reader :wdb
-  def initialize
+  def initialize(seek_out=true)
     @wdb = Wdb.new "10.4.51.2"
     @breakpts = []
     @wdb.connect
+    unless seek_out
+      puts "Connected to vxWorks."
+      return
+    end
     puts "Connected to vxWorks. Loading Symbols..."
     # load the important stuff: get the symbols
     syms = []
@@ -34,7 +38,7 @@ class WdbGdbMusher
 
     while @mod_offsets.has_more
       nr = @wdb.get_module(syms.ref)
-      
+
       # some names are spread out in multiple responses.
       if nr.sections.first && nr.sections.first.offset == @mod_offsets.sections.last.offset
         @mod_offsets.sections.last.name += nr.sections.first.name

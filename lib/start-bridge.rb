@@ -11,7 +11,7 @@
 require 'socket'
 require_relative 'start-wdb'
 
-GDB_PACKET = /^\$(.*)\#(..)$/
+GDB_PACKET_END = /^\#(..)$/
 core_dir = ARGV.length > 0 ? ARGV[0] : ENV['FRC_COREFILES']
 
 def gdb_checksum(str)
@@ -21,7 +21,7 @@ def gdb_checksum(str)
 end
 
 def validate_gdb_packet(str)
-  str = str.match GDB_PACKET
+  str = [str, str[1..-4], str[-2..-1]]
   if gdb_checksum(str[1]) != str[2]
     puts "Checksum mismatch: expected '#{gdb_checksum(str[1])}' but found '#{str[2]}"
     return false
@@ -29,13 +29,24 @@ def validate_gdb_packet(str)
   str[1]
 end
 
+def split_x_packet(str)
+  #                             X    numbers hex    ,    num    hex     :  data
+  r = str.unpack("H*")[0].match(/58((3[0-9]|6[1-6])+)2c((3[0-9]|6[1-6])+)3a(.*)$/)
+  return [[r[1]].pack("H*").to_i(16), [r[3]].pack("H*").to_i(16), [r[5]].pack("H*")]
+end
+
 class TCPSocket
   def get_gdb_str
     str = ""
     loop do
       str += self.getc
-      if str.match GDB_PACKET
-        STDOUT.puts "<- #{validate_gdb_packet(str)}"
+      if str.length > 3 && str[0] == "$" && str[-3..-1].match(GDB_PACKET_END)
+        px = validate_gdb_packet(str)
+        if str[1] == "X"
+          xp = split_x_packet(str)
+          px = "X#{xp[0].to_s(16)},#{xp[1].to_s(16)}:#{xp[2].unpack("H*")[0]}"
+        end
+        STDOUT.puts "<- #{px}"
         return str
       elsif str == "\x03" or str == "+"
         return str
@@ -58,7 +69,8 @@ end
 
 server = TCPServer.new 2345
 
-wdb_mush = WdbGdbMusher.new
+wdb_mush = WdbGdbMusher.new(false)
+if false
 puts "Searching for thead"
 thread_id = wdb_mush.get_thread_id
 puts "enabling debug mode..."
@@ -86,7 +98,29 @@ xml_segs << "</library></library-list>"
 brkmap = {}
 puts "Listening for GDB..."
 client = server.accept
-
+else
+  begin
+wdb_mush.debug_mode = true
+  res = wdb_mush.wdb.memalign(8, 900)
+  puts "Got addr of 0x#{res.to_s(16)}"
+  gb = wdb_mush.wdb.get_mem(res, 20)
+  puts "o> #{gb.inspect}"
+  wdb_mush.wdb.fill_mem(res, 10)
+  begin
+    wdb_mush.wdb.set_mem(res, "Hello World! I hear its nice!!\0\0")
+  rescue
+    puts "hmm"
+  end
+  puts "sent data"
+  gb = wdb_mush.wdb.get_mem(res, 20)
+  puts "=> #{gb.inspect}"
+  puts "woot@!"
+  ensure
+wdb_mush.debug_mode = false
+  wdb_mush.close
+  end
+  exit 0
+end
 begin
   wdb_mush.async_get_events() do |data|
     client.put_gdb_str("S05") # Breakpoint default!
@@ -107,7 +141,7 @@ begin
     elsif str.start_with? "q"
       str = str[1..-1]
       if str.start_with? "Supported"
-        client.put_gdb_str("PacketSize=2000;qXfer:libraries:read+")
+        client.put_gdb_str("PacketSize=2000")##;qXfer:libraries:read+")
       elsif str.start_with? "C" #current thread
         client.put_gdb_str("QC#{thread_id.to_s 16}")
       elsif str.start_with? "Attached"
@@ -217,6 +251,8 @@ begin
     elsif str.start_with? "m" # memory. read. mADDR_TO_READ,SIZE
       bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
       client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
+    elsif str.start_with? "X" # memory write. USES BINARY!
+      client.put_ok
     elsif str.start_with? "Z0"
       addr = str.match(/Z0,([a-fA-F0-9]+),/)[1].to_i(16)
       brkmap[addr] = wdb_mush.add_breakpoint(addr)
