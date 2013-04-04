@@ -273,7 +273,16 @@ class Wdb
           ].pack("N*"))))
   end
   def thread_new(name, entry_point, priority=100, stack_size=0x20000, options=0x10)
-
+    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CREATE'], @core.get_mem + [
+            3, # context = task
+          ].pack("N*") + Xdr.flatten(name) + [
+            0, 0, 0, # redir stdin, out, err
+            0, # base = 0, its the kernel
+            entry_point,
+            0, 0, # 0 args
+            0, # not in a protected domain
+            priority, stack_size, options
+          ].pack("N*"))))
   end
   def thread_break(thread_id)
     strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
