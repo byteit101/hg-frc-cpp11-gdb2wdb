@@ -1,6 +1,7 @@
 # GPLv3+
 
 require_relative 'wdb/wdb'
+require_relative './elf_utils'
 
 class WdbGdbMusher
   attr_reader :mod_offsets
@@ -8,6 +9,7 @@ class WdbGdbMusher
   def initialize(seek_out=true)
     @wdb = Wdb.new "10.4.51.2"
     @breakpts = []
+    @thread_breakpoints = nil
     @wdb.connect
     unless seek_out
       puts "Connected to vxWorks."
@@ -85,6 +87,24 @@ class WdbGdbMusher
     @wdb.get_mem(addr, size)
   end
 
+  def break_on_new_thread=(val)
+    if val and not @thread_breakpoints
+      @thread_breakpoints = [
+    # 1 = thread create, 2 = thread quit
+    # no args
+    # 3 = task/tread
+    # magic number
+    # notify us when it happens and break it
+    @wdb.create_custom_breakpoint(1, [], 3, 0xffff_ffff, 6),
+    @wdb.create_custom_breakpoint(2, [], 3, 0xffff_ffff, 6)
+      ]
+    elsif !val and @thread_breakpoints
+      @wdb.delete_breakpoint(@thread_breakpoints[0], 1)
+      @wdb.delete_breakpoint(@thread_breakpoints[1], 2)
+      @thread_breakpoints = nil
+    end
+  end
+
   def break(thread_id)
     @wdb.thread_break(thread_id)
   end
@@ -115,10 +135,45 @@ class WdbGdbMusher
     end
   end
 
+  def upload_elf(filename)
+    entry_name = "FRC_UserProgram_StartupLibraryInit"
+    allocated_size = 900
+    addr = @wdb.memalign(8, allocated_size)
+    puts "Allocated on 0x#{addr.to_s 16}. Please link and hit enter to continue..."
+    STDIN.gets()
+    elf = ElfParser.new(filename)
+    puts "Zeroing entire allocated region..."
+    @wdb.fill_mem(addr, allocated_size)
+
+    puts "Begining upload in chunks of 384 (0x180) bytes at a time..."
+    [:text, :data].each do |seg_name|
+      puts "Uploading .#{seg_name}..."
+      seg = elf.section(seg_name)
+      seg_raw = seg.raw
+      seg_address = seg.address
+      (seg.size / 384.0).ceil.times do |idx|
+        @wdb.set_mem(seg_address + (idx * 384), seg_raw[idx * 384, 384])
+      end
+      puts "Done"
+    end
+
+    puts "Refreshing cache..."
+    @wdb.force_cache_refresh(addr, allocated_size)
+
+    puts "Calling constructors..."
+    @wdb.call_ctors(elf.address_of("_ctors"))
+
+    puts "Creating new thread..."
+    thread_id = @wdb.thread_new("t#{entry_name}", elf.address_of(entry_name))
+
+    puts "Success! Thread is 0x#{thread_id.to_s 16}"
+  end
+
   def close
     @breakpts.each do |id|
       @wdb.delete_breakpoint(id)
     end
+    self.break_on_new_thread = false
     wdb.disconnect
   end
 end

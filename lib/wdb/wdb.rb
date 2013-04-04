@@ -125,7 +125,7 @@ class Wdb
   end
   def send_with_event(data)
     @expecting_event = true
-    resp = strip_header(send(data))
+    resp = strip_header(send(data), true)
     evt_ping = @sock.recv_type :response
     @expecting_event = false
     event_resp = strip_header(get_event)
@@ -188,9 +188,10 @@ class Wdb
     end
     symtab
   end
-  def strip_header(raw)
+  def strip_header(raw, over9000=false)
     rpc = RpcHeader.new(raw[0,36])
     if (rpc.type != 1) || rpc.event_type != 0 || (rpc.error_code != 0 && rpc.error_code != 0x4000) # reply, no event
+      if rpc.error_code == 0x8000 && !over9000
       puts "whoa! unknown response packet!"
       puts raw.unpack("H*")[0] # hexdump it
       puts "END OF ERROR PACKET"
@@ -198,6 +199,7 @@ class Wdb
       puts "event type: #{rpc.event_type.to_s 16}"
       puts "error code: #{rpc.error_code.to_s 16}"
       raise "Error in packet!"
+      end
     end
     raw[36..-1]
   end
@@ -273,16 +275,17 @@ class Wdb
           ].pack("N*"))))
   end
   def thread_new(name, entry_point, priority=100, stack_size=0x20000, options=0x10)
-    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CREATE'], @core.get_mem + [
-            3, # context = task
-          ].pack("N*") + Xdr.flatten(name) + [
-            0, 0, 0, # redir stdin, out, err
-            0, # base = 0, its the kernel
-            entry_point,
-            0, 0, # 0 args
-            0, # not in a protected domain
-            priority, stack_size, options
-          ].pack("N*"))))
+    evt_data = send_with_event(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_CREATE'], @core.get_mem + [
+          3, # context = task
+        ].pack("N*") + Xdr.flatten(name) + [
+          0, 0, 0, # redir stdin, out, err
+          0, # base = 0, its the kernel
+          entry_point,
+          0, 0, # 0 args
+          0, # not in a protected domain
+          priority, stack_size, options
+        ].pack("N*")))
+    evt_data.response.unpack("N")[0]
   end
   def thread_break(thread_id)
     strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STOP'], [
@@ -324,7 +327,12 @@ class Wdb
     #001b86d4
   end
   def call_ctors(_ctors)
-    call_task_func(0xd3274, [_ctors])
+    @expecting_event = true
+    strip_header call_task_func(0xd3274, [_ctors]), true
+    evt_ping = @sock.recv_type :response
+    @expecting_event = false
+    evt_data = strip_header(get_event)
+    true
   end
   def call_task_func(entry_point, args, priority=100, stack_size=0, options=0)
     func_call(3, #3 for task
@@ -392,17 +400,25 @@ class Wdb
     bed.ctx_type = CTX_TYPES[bed.ctx_type] || bed.ctx_type
   end
   def create_breakpoint(addr)
+    create_custom_breakpoint(3, #its a breakpoint
+      [addr, 0, 0],
+      3, # its a task
+      0, # arg of 0
+      6) # Stop (4) and phone home (2)
+  end
+  def create_custom_breakpoint(type, args, ctx, mask, and_do)
     strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENTPOINT_ADD'], @core.get_mem + [
-            3, #its a breakpoint
-            3, 3, addr, 0, 0, # list of 3 arguments
-            3, 1, 1, 0, # its a task, with 1 argument
-            6, # Stop and phone home
+            type, #its a breakpoint
+            args.length, args.length
+          ].pack("N*") + args.pack("N*") + [
+            ctx, 1, 1, mask, # its a task, with 1 argument
+            and_do, # Stop (4) and phone home (2)
             0, 0, 0 # magic arguments
           ].pack("N*")))).unpack("N")[0]
   end
-  def delete_breakpoint(id)
+  def delete_breakpoint(id, type=3)
     strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENTPOINT_DELETE'], @core.get_mem + [
-            3, #its a thread breakpoint
+            type, #its a thread breakpoint
             id
           ].pack("N*")))).unpack("N")[0]
   end
