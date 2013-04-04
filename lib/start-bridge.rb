@@ -107,10 +107,11 @@ wdb_mush.debug_mode = true
   puts "o> #{gb.inspect}"
   wdb_mush.wdb.fill_mem(res, 10)
   begin
-    wdb_mush.wdb.set_mem(res, "Hello World! I hear its nice!!\0\0")
+    wdb_mush.wdb.set_mem(res, "Hello World! I hear its nice!!", Wdb::MEMORY_OPTIONS[:copy_by_uint8] | 1)
   rescue
     puts "hmm"
   end
+  wdb_mush.wdb.force_cache_refresh(res, 400)
   puts "sent data"
   gb = wdb_mush.wdb.get_mem(res, 20)
   puts "=> #{gb.inspect}"

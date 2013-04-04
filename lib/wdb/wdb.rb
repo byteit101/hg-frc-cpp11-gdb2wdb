@@ -231,31 +231,32 @@ class Wdb
     end
     Moduletab.new(more, text, data, bss, res)
   end
-  def set_mem(addr, data)
+  def set_mem(addr, data, options=MEMORY_OPTIONS[:force_write])
     strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_WRITE'], [
             2, 0, 0, # WDB_CORE
-            1, # options
+            options,
             data.length,
             addr,
             data.length
           ].pack("N*") + data)))
   end
+  def force_cache_refresh(addr, size)
+    strip_header(_send_mem_region(FUNC_NUMBERS['MEM_CACHE_TEXT_UPDATE'], addr, size, 0, 0))
+  end
   def fill_mem(addr, size, pattern=0)
-    strip_header(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_FILL'], [
-            2, 0, 0, # WDB_CORE
-            1, # options
-            addr,
-            size,
-            pattern
-          ].pack("N*"))))
+    strip_header(_send_mem_region(FUNC_NUMBERS['MEM_FILL'], addr, size, pattern))
   end
   def get_mem(addr, length)
-    unwrap_xfer(send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['MEM_READ'], [
-            2, 0, 0, # WDB_CORE
-            0, # options
-            addr, length,
-            0 # param. this is never zero in WindRiver stuff. No idea what it could be
-          ].pack("N*"))))
+    unwrap_xfer(_send_mem_region(FUNC_NUMBERS['MEM_READ'], addr, length))
+  end
+  def _send_mem_region(func_number, addr, size, param=0, mem_option=MEMORY_OPTIONS[:force_write])
+    send(OncRpc.wrap(@seqn += 1, func_number, [
+          2, 0, 0, # WDB_CORE
+          mem_option,
+          addr,
+          size,
+          param
+        ].pack("N*")))
   end
   def get_regs(thread_id, rx=35, count=1, type=:int)
     rsize = (type == :int ? 4 : 8)
