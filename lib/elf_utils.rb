@@ -15,6 +15,10 @@ class ElfParser
   def section(sec)
     ElfParserSection.new(@file_name, sec)
   end
+
+  def address_of(symbol)
+    `#{READELF} -W -s #{@file_name} | grep ' #{symbol.to_s}$' |awk '{print $2}'`.strip.to_i(16)
+  end
 end
 
 class ElfParserSection
