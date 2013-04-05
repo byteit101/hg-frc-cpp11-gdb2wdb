@@ -170,11 +170,15 @@ class WdbGdbMusher
 
     puts "Creating new thread..."
     thread_id = @wdb.thread_new("t#{entry_name}", elf.address_of(entry_name))
-
     puts "Success! Thread is 0x#{thread_id.to_s 16}"
 
+    puts "Stopping at entry..."
+    @wdb.thread_break(thread_id) # breakpoint stop
+    @wdb.thread_resume(thread_id) # resumes creation, then instantly hits above stop
+
     puts "Saving offsets..."
-    @mod_offsets = Moduletab.new(false, elf.section(:text).address, elf.section(:data).address, elf.section(:bss).address, [])
+    @mod_offsets = Moduletab.new(false, 0,0,0, [])
+
     thread_id
   end
 
