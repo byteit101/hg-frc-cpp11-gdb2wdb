@@ -294,6 +294,13 @@ class Wdb
           1, 1, thread_id # num of arguments, num of arguments, argument
         ].pack("N*")))
   end
+  def thread_resume(thread_id)
+    strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_RESUME'], [
+          2, 0, 0, # WDB_CORE
+          3, # context = task
+          1, 1, thread_id # num of arguments, num of arguments, argument
+        ].pack("N*")))
+  end
   def decode_regs(raw)
     raw = strip_header(raw)
     # options, source, dest, length = 4, skip them
