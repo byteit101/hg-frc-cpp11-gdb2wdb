@@ -128,14 +128,23 @@ class Wdb
     resp = strip_header(send(data), true)
     evt_ping = @sock.recv_type :response
     @expecting_event = false
-    event_resp = strip_header(get_event)
+    event_resp = get_event
     WdbEventCollection.new(resp, evt_ping[20..23].unpack("N")[0], event_resp)
   end
   def get_event_call
     @sock.recv_type :input
   end
   def get_event
-    send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENT_GET'], @core.get_mem)
+    loop {
+      q = send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENT_GET'], @core.get_mem)
+    res = decode_event(strip_header(q))
+    if res == 666
+      p q
+      puts "hmm..."
+      res = nil
+    end
+    return res if res != nil
+    }
   end
   def set_name(str)
     send OncRpc.wrap(@seqn += 1, 122,
@@ -190,8 +199,7 @@ class Wdb
   end
   def strip_header(raw, over9000=false)
     rpc = RpcHeader.new(raw[0,36])
-    if (rpc.type != 1) || rpc.event_type != 0 || (rpc.error_code != 0 && rpc.error_code != 0x4000) # reply, no event
-      if rpc.error_code == 0x8000 && !over9000
+    if (rpc.type != 1) || rpc.event_type != 0 || ((rpc.error_code & 0xFFF) != 0) # reply, no event
       puts "whoa! unknown response packet!"
       puts raw.unpack("H*")[0] # hexdump it
       puts "END OF ERROR PACKET"
@@ -199,7 +207,6 @@ class Wdb
       puts "event type: #{rpc.event_type.to_s 16}"
       puts "error code: #{rpc.error_code.to_s 16}"
       raise "Error in packet!"
-      end
     end
     raw[36..-1]
   end
@@ -338,7 +345,7 @@ class Wdb
     strip_header call_task_func(0xd3274, [_ctors]), true
     evt_ping = @sock.recv_type :response
     @expecting_event = false
-    evt_data = strip_header(get_event)
+    evt_data = get_event
     true
   end
   def call_task_func(entry_point, args, priority=100, stack_size=0, options=0)
@@ -387,7 +394,7 @@ class Wdb
     WdbGopherResults.new(rpc.error_code == 0x4000, raw[16..-1])
   end
   def step(thread, lower, upper)
-    res = send_with_event(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
+    strip_header send(OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['CONTEXT_STEP'], [
           2, 0, 0, # WDB_CORE
           3, # its a task!
           1, 1, thread, # argument array
@@ -403,8 +410,22 @@ class Wdb
         ].pack("N*")))
   end
   def decode_event(raw)
-    bed = BasicEventData.new(*raw[0,16].unpack("N*"))
-    bed.ctx_type = CTX_TYPES[bed.ctx_type] || bed.ctx_type
+    if raw == ""
+      puts caller
+      return 666
+    end
+    evt = WdbEvent.new(raw)
+    return nil if evt.type == 0
+    parsed = evt.parse_it
+    unless parsed
+      puts "Cannot parse this event:"
+      p raw
+      p evt
+      return false
+    end
+    parsed = parsed.to_struct
+    parsed.context_type = CTX_TYPES[parsed.context_type] || parsed.context_type
+    [evt, parsed]
   end
   def create_breakpoint(addr)
     create_custom_breakpoint(3, #its a breakpoint
@@ -476,4 +497,53 @@ class RpcHeader < MemStruct
   int :error_code
 end
 
-BasicEventData = Struct.new("BasicEventData", :unknown, :ctx_type, :ctx_id, :parent_id)
+class WdbBreakpointEvent < MemStruct
+  default_encoding :big_endian
+  int :status
+  int :context_type
+  int :context_id
+  int :magic_number
+  int :hit_context_type
+  int :hit_context_id
+  int :second_magic_number
+  # yada yada its powerpc. shut up.
+  int :eip
+  int :ebp
+  int :esp
+end
+class WdbCtxCreateEvent < MemStruct
+  default_encoding :big_endian
+  int :context_type
+  int :context_id
+  int :magic_number
+  int :parent_context_type
+  int :parent_context_id
+  int :second_magic_number
+end
+class WdbCtxDestroyEvent < MemStruct
+  default_encoding :big_endian
+  int :context_type
+  int :context_id
+  int :second_magic_number
+  int :third_magic_number
+end
+class WdbEvent < MemStruct
+  default_encoding :big_endian
+  int :type
+  int :number_of_args
+
+  TYPE_PARSERS = {
+    3 => WdbBreakpointEvent,
+    1 => WdbCtxCreateEvent,
+    2 => WdbCtxDestroyEvent
+
+  }
+
+  def parse_it
+    if TYPE_PARSERS.has_key? type
+      TYPE_PARSERS[type].new(unallocated_data)
+    else
+      nil
+    end
+  end
+end

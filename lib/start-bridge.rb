@@ -103,7 +103,12 @@ client = server.accept
 
 begin
   wdb_mush.async_get_events() do |data|
-    client.put_gdb_str("S05") # Breakpoint default!
+    p data
+    type = data[0].type
+    if type == 3 || type == 1 # breakpoint, ctx create
+    client.put_gdb_str("T05thread:#{data[1].context_id.to_s 16};") # Breakpoint default!
+    thread_id = data[1].context_id
+    end
   end
   loop do
     str = client.get_gdb_str
@@ -116,7 +121,7 @@ begin
     if str == "+"
     elsif str == "\x03"
       wdb_mush.break(thread_id)
-      client.put_gdb_str("S05") #signal 05 (TRAP)
+      client.put_gdb_str("T05thread:#{thread_id.to_s 16};") #signal 05 (TRAP)
     elsif str.start_with? "q"
       str = str[1..-1]
       if str.start_with? "Supported"
@@ -161,7 +166,7 @@ begin
     elsif str.start_with? "H" # set the current thread, G is general, C is continue, i think
       client.put_gdb_str("OK")
     elsif str == "?" # what is the status?
-      client.put_gdb_str("S05") #signal 05 (TRAP
+      client.put_gdb_str("T05thread:#{thread_id.to_s 16};") #signal 05 (TRAP
     elsif str == "!"
       client.put_ok
     elsif str == "vCont?"
@@ -181,7 +186,7 @@ begin
         mod_threads << thread
         if cmd == "s" #step
           wdb_mush.step(thread)
-          client.put_gdb_str("S05") #signal 5 (TRAP)
+          #client.put_gdb_str("S05") # signal 5 (TRAP)
         elsif cmd == "c" #continue
           wdb_mush.continue(thread)
         else
@@ -191,7 +196,7 @@ begin
       end
     elsif str == "s" #step
       wdb_mush.step(thread_id)
-      client.put_gdb_str("S05") #signal 5 (TRAP)
+      #client.put_gdb_str("S05") # signal 5 (TRAP)
     elsif str == "c" #continue
       wdb_mush.continue(thread_id)
     elsif str == "g" # registers! oh yea, no ow
