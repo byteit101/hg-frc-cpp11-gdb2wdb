@@ -135,13 +135,18 @@ class WdbGdbMusher
     end
   end
 
-  def upload_elf(filename)
+  def upload_elf(filename, os_image)
     entry_name = "FRC_UserProgram_StartupLibraryInit"
-    allocated_size = 900
+    # compute the required size
+    elk = ElfLinker.new(filename)
+    elf = ElfParser.new(elk.link_at(0, os_image, entry_name))
+    allocated_size = elf.section(:text).size + elf.section(:data).size + elf.section(:bss).size + 42 # unicorns
+    # request space
     addr = @wdb.memalign(8, allocated_size)
-    puts "Allocated on 0x#{addr.to_s 16}. Please link and hit enter to continue..."
-    STDIN.gets()
-    elf = ElfParser.new(filename)
+
+    puts "Allocated on 0x#{addr.to_s 16}. Relocating elf file..."
+    elf = ElfParser.new(elk.link_at(addr, os_image, entry_name))
+
     puts "Zeroing entire allocated region..."
     @wdb.fill_mem(addr, allocated_size)
 
@@ -167,6 +172,10 @@ class WdbGdbMusher
     thread_id = @wdb.thread_new("t#{entry_name}", elf.address_of(entry_name))
 
     puts "Success! Thread is 0x#{thread_id.to_s 16}"
+
+    puts "Saving offsets..."
+    @mod_offsets = Moduletab.new(false, elf.section(:text).address, elf.section(:data).address, elf.section(:bss).address, [])
+    thread_id
   end
 
   def close

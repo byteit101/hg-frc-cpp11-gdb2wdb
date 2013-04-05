@@ -312,7 +312,7 @@ class Wdb
   end
   def memalign(bound, size)
     #FIXME: this should not be hard coded
-    strip_header(direct_call(0x001b86d4, [bound, size])).tap{|x| puts "Got memalign()=> #{x.inspect}"}.unpack("N")[0]
+    strip_header(direct_call(0x001b86d4, [bound, size])).unpack("N")[0]
   end
   def direct_call(entry_point, args)
     send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['DIRECT_CALL'], @core.get_mem + [
