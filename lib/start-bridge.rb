@@ -12,7 +12,8 @@ require 'socket'
 require_relative 'start-wdb'
 
 GDB_PACKET_END = /^\#(..)$/
-core_dir = ARGV.length > 0 ? ARGV[0] : ENV['FRC_COREFILES']
+core_dir = ARGV.length > 1 ? ARGV[1] : ENV['FRC_COREFILES']
+outfile = ARGV[0]
 
 def gdb_checksum(str)
   cs = 0
@@ -70,63 +71,40 @@ end
 server = TCPServer.new 2345
 
 wdb_mush = WdbGdbMusher.new(false)
-if false
-puts "Searching for thead"
-thread_id = wdb_mush.get_thread_id
-puts "enabling debug mode..."
-wdb_mush.debug_mode = true
-puts "Building offset map..."
 
-offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}"
-#puts "Got a map of this: "
-# build the xml doc now
-# <library-list>
-# <library name="sharedlib.o">
-# <segment address="0x10000000"/>
-#</library>
-#</library-list>
 puts " Using #{core_dir}/cRIOFRC_vxWorks as cRIO corefile..."
 xml_segs = "<library-list><library name=\"cRIOFRC_vxWorks\">"
 `powerpc-wrs-vxworks-readelf -S #{core_dir}/cRIOFRC_vxWorks`.scan(/\[[ 0-9]{2}\] \.[\w\._\$]* *[A-Z]* *[0-9a-fA-F]{8} ([0-9a-fA-F]{1,9}) [0-9a-fA-F]{1,9} [0-9]{2} *[WZMSILGTExOop]*A[WZMSILGTExOop]* *[0-9]*/) do |offset|
   xml_segs << "<section address=\"0x00000000\"/>"
 end
-xml_segs << "</library><library name=\"FRC_UserProgram.out\">"
-wdb_mush.mod_offsets.sections.each do |sec|
-  xml_segs << "<section address=\"0x#{sec.offset.to_s(16)}\"/>"
-end
 xml_segs << "</library></library-list>"
-brkmap = {}
-puts "Listening for GDB..."
-client = server.accept
-else
-  begin
+
+puts "enabling debug mode..."
 wdb_mush.debug_mode = true
-  res = wdb_mush.wdb.memalign(8, 900)
-  puts "Got addr of 0x#{res.to_s(16)}"
-  gb = wdb_mush.wdb.get_mem(res, 20)
-  puts "o> #{gb.inspect}"
-  wdb_mush.wdb.fill_mem(res, 10)
-  begin
-    wdb_mush.wdb.set_mem(res, "Hello World! I hear its nice!!", Wdb::MEMORY_OPTIONS[:copy_by_uint8] | 1)
-  rescue
-    puts "hmm"
-  end
-  wdb_mush.wdb.force_cache_refresh(res, 400)
-  puts "sent data"
-  gb = wdb_mush.wdb.get_mem(res, 20)
-  puts "=> #{gb.inspect}"
-  puts "woot@!"
-  ensure
-wdb_mush.debug_mode = false
-  wdb_mush.close
-  end
-  exit 0
+wdb_mush.break_on_new_thread = true
+
+thread_id = 0
+if false
+  puts "Searching for thead..."
+  thread_id = wdb_mush.get_thread_id
+  puts "Breaking thread..."
+  wdb_mush.break(thread_id)
+else
+  puts "Loading code into target memory..."
+  thread_id = wdb_mush.upload_elf(outfile, "#{core_dir}/cRIOFRC_vxWorks")
 end
+
+puts "Building offset map..."
+offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}"
+
+brkmap = {}
+puts "Listening for GDB... connect with:\ntarget extended-remote localhost:2345"
+client = server.accept
+
 begin
   wdb_mush.async_get_events() do |data|
     client.put_gdb_str("S05") # Breakpoint default!
   end
-  wdb_mush.break(thread_id)
   loop do
     str = client.get_gdb_str
     if str == "-"
@@ -142,14 +120,12 @@ begin
     elsif str.start_with? "q"
       str = str[1..-1]
       if str.start_with? "Supported"
-        client.put_gdb_str("PacketSize=2000")##;qXfer:libraries:read+")
+        client.put_gdb_str("PacketSize=2000;qXfer:libraries:read+")
       elsif str.start_with? "C" #current thread
         client.put_gdb_str("QC#{thread_id.to_s 16}")
       elsif str.start_with? "Attached"
         client.put_gdb_str("1")
       elsif str.start_with? "Symbol::"
-        #client.put_gdb_str("qSymbol:5f5a3379617969") # 4652435f5573657250726f6772616d5f537461727475704c696272617279496e6974")
-        #client.put_gdb_str("qSymbol:FRC_UserProgram_StartupLibraryInit")
         client.put_ok
       elsif str.start_with? "Symbol:"
         puts str
