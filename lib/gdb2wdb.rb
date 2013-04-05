@@ -9,10 +9,11 @@
 
 
 require 'socket'
-require_relative 'start-wdb'
+require_relative 'wdb_proxy'
 
+# Parse the args
 GDB_PACKET_END = /^\#(..)$/
-core_dir = ARGV.length > 1 ? ARGV[1] : ENV['FRC_COREFILES']
+core_file = ARGV.length > 1 ? ARGV[1] : ENV['FRC_COREFILE']
 outfile = ARGV[0]
 
 def gdb_checksum(str)
@@ -70,11 +71,11 @@ end
 
 server = TCPServer.new 2345
 
-wdb_mush = WdbGdbMusher.new(false)
+wdb_mush = WdbProxy.new(false)
 
-puts " Using #{core_dir}/cRIOFRC_vxWorks as cRIO corefile..."
-xml_segs = "<library-list><library name=\"cRIOFRC_vxWorks\">"
-`powerpc-wrs-vxworks-readelf -S #{core_dir}/cRIOFRC_vxWorks`.scan(/\[[ 0-9]{2}\] \.[\w\._\$]* *[A-Z]* *[0-9a-fA-F]{8} ([0-9a-fA-F]{1,9}) [0-9a-fA-F]{1,9} [0-9]{2} *[WZMSILGTExOop]*A[WZMSILGTExOop]* *[0-9]*/) do |offset|
+puts " Using #{core_file} as cRIO corefile..."
+xml_segs = "<library-list><library name=\"#{core_file}\">"
+`powerpc-wrs-vxworks-readelf -S #{core_file}`.scan(/\[[ 0-9]{2}\] \.[\w\._\$]* *[A-Z]* *[0-9a-fA-F]{8} ([0-9a-fA-F]{1,9}) [0-9a-fA-F]{1,9} [0-9]{2} *[WZMSILGTExOop]*A[WZMSILGTExOop]* *[0-9]*/) do |offset|
   xml_segs << "<section address=\"0x00000000\"/>"
 end
 xml_segs << "</library></library-list>"
@@ -92,7 +93,7 @@ if false
   wdb_mush.break(thread_id)
 else
   puts "Loading code into target memory..."
-  thread_id = wdb_mush.upload_elf(outfile, "#{core_dir}/cRIOFRC_vxWorks")
+  thread_id = wdb_mush.upload_elf(outfile, core_file)
   on_quit = :kill
 end
 

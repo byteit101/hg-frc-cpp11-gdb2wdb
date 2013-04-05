@@ -3,7 +3,7 @@
 require_relative 'wdb/wdb'
 require_relative './elf_utils'
 
-class WdbGdbMusher
+class WdbProxy
   attr_reader :mod_offsets
   attr_reader :wdb
   def initialize(seek_out=true)
