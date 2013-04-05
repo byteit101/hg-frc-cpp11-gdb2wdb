@@ -84,6 +84,7 @@ wdb_mush.debug_mode = true
 wdb_mush.break_on_new_thread = true
 
 thread_id = 0
+on_quit = :detach
 if false
   puts "Searching for thead..."
   thread_id = wdb_mush.get_thread_id
@@ -92,22 +93,37 @@ if false
 else
   puts "Loading code into target memory..."
   thread_id = wdb_mush.upload_elf(outfile, "#{core_dir}/cRIOFRC_vxWorks")
+  on_quit = :kill
 end
 
 puts "Building offset map..."
 offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}"
 
 brkmap = {}
+all_threads = [thread_id]
 puts "Listening for GDB... connect with:\ntarget remote localhost:2345"
 client = server.accept
 
 begin
   wdb_mush.async_get_events() do |data|
-    p data
     type = data[0].type
     if type == 3 || type == 1 # breakpoint, ctx create
-    client.put_gdb_str("T05thread:#{data[1].context_id.to_s 16};") # Breakpoint default!
-    thread_id = data[1].context_id
+      client.put_gdb_str("T05thread:#{data[1].context_id.to_s 16};") # Breakpoint default!
+      thread_id = data[1].context_id
+      unless all_threads.include?(thread_id)
+        all_threads << thread_id
+      end
+    elsif type == 2 # ctx destroy
+      # remove it from our pool
+      if all_threads.include?(data[1].context_id)
+        all_threads -= [data[1].context_id]
+      end
+      if thread_id == data[1].context_id
+        thread_id = all_threads[0] # if there are no more threads we might want to gracefully fail
+      end
+    else
+      puts "Unknown event happened!"
+      p data
     end
   end
   loop do
@@ -164,6 +180,10 @@ begin
         puts "q" + str
       end
     elsif str.start_with? "H" # set the current thread, G is general, C is continue, i think
+      new_thread =  str[2..-1].to_i(16)
+      if new_thread > 0
+        thread_id = new_thread
+      end
       client.put_gdb_str("OK")
     elsif str == "?" # what is the status?
       client.put_gdb_str("T05thread:#{thread_id.to_s 16};") #signal 05 (TRAP
@@ -252,8 +272,14 @@ begin
     elsif str.start_with? "T"  #is thread alive
       # CHEAT CHEAT!!!! TODO: fix
       client.put_ok
-    elsif str == "D"
+    elsif str == "D" # detach
       client.put_ok
+      on_quit = :detach if on_quit != :kill
+      break
+    elsif str == "k" # kill
+      client.put_ok
+      on_quit = :kill
+      break
     elsif str.start_with? "vKill"
       client.put_ok
     else
@@ -263,7 +289,11 @@ begin
   end
 ensure
   client.close
-  wdb_mush.continue(thread_id)
+  if on_quit == :detach
+    wdb_mush.continue(thread_id)
+  else
+    # TODO: kill
+  end
   wdb_mush.debug_mode = false
   wdb_mush.close
 end
