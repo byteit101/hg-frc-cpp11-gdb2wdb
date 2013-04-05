@@ -87,16 +87,27 @@ class WdbGdbMusher
     @wdb.get_mem(addr, size)
   end
 
+  def write_memory(data, addr)
+    opt = Wdb::MEMORY_OPTIONS[:force_write]
+    if (data.length % 2) != 0
+      opt |= Wdb::MEMORY_OPTIONS[:copy_by_uint8]
+    elsif (data.length % 4) != 0
+      opt |= Wdb::MEMORY_OPTIONS[:copy_by_uint16]
+    end
+    # 32 bit is default
+    @wdb.set_mem(addr, data, opt)
+  end
+
   def break_on_new_thread=(val)
     if val and not @thread_breakpoints
       @thread_breakpoints = [
-    # 1 = thread create, 2 = thread quit
-    # no args
-    # 3 = task/tread
-    # magic number
-    # notify us when it happens and break it
-    @wdb.create_custom_breakpoint(1, [], 3, 0xffff_ffff, 6),
-    @wdb.create_custom_breakpoint(2, [], 3, 0xffff_ffff, 6)
+        # 1 = thread create, 2 = thread quit
+        # no args
+        # 3 = task/tread
+        # magic number
+        # notify us when it happens and break it
+        @wdb.create_custom_breakpoint(1, [], 3, 0xffff_ffff, 6),
+        @wdb.create_custom_breakpoint(2, [], 3, 0xffff_ffff, 6)
       ]
     elsif !val and @thread_breakpoints
       @wdb.delete_breakpoint(@thread_breakpoints[0], 1)

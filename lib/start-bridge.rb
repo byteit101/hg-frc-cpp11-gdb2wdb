@@ -44,7 +44,7 @@ class TCPSocket
       if str.length > 3 && str[0] == "$" && str[-3..-1].match(GDB_PACKET_END)
         px = validate_gdb_packet(str)
         if str[1] == "X"
-          xp = split_x_packet(str)
+          xp = split_x_packet(px)
           px = "X#{xp[0].to_s(16)},#{xp[1].to_s(16)}:#{xp[2].unpack("H*")[0]}"
         end
         STDOUT.puts "<- #{px}"
@@ -98,7 +98,7 @@ puts "Building offset map..."
 offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_offsets.data.to_s 16};Bss=#{wdb_mush.mod_offsets.data.to_s 16}"
 
 brkmap = {}
-puts "Listening for GDB... connect with:\ntarget extended-remote localhost:2345"
+puts "Listening for GDB... connect with:\ntarget remote localhost:2345"
 client = server.accept
 
 begin
@@ -234,6 +234,13 @@ begin
       bits = str.match(/m([a-fA-F0-9]{1,8}),([a-fA-F0-9]{1,8})/)
       client.put_gdb_str(wdb_mush.read_memory(bits[1].to_i(16), bits[2].to_i(16)).unpack("H*")[0])
     elsif str.start_with? "X" # memory write. USES BINARY!
+      pkt = split_x_packet(str)
+      if pkt[1] > 0 # length
+        if pkt[1] != pkt[2].length
+          puts "Whoa! size written and data are not the same size! #{pkt[1]} != #{pkt[2].length}"
+        end
+        wdb_mush.write_memory(pkt[2], pkt[0])
+      end
       client.put_ok
     elsif str.start_with? "Z0"
       addr = str.match(/Z0,([a-fA-F0-9]+),/)[1].to_i(16)
