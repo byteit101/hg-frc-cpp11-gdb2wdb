@@ -5,9 +5,15 @@ class MemStruct
   attr_accessor :raw_data
   @@enc = {}
   @@pos = {}
+  @@fields = {}
+  @@structs = {}
+  @@save_it = {}
   def self.inherited(mod)
-    @@enc[mod] = "V" # default to little endian, or V (vax)
+    @@enc[mod] = :little_endian # default to little endian, or V (vax)
     @@pos[mod] = 0
+    @@fields[mod] = []
+    @@structs[mod] = nil
+    @@save_it[mod] = true
   end
   def self.int(name, *args)
     data(name, 4, *args)
@@ -15,7 +21,11 @@ class MemStruct
   def self.default_encoding(endian)
     @@enc[self] = endian
   end
+  def self.read_only_data(ro=true)
+    @@save_it[self] = !ro
+  end
   def self.data(name, size, *args)
+    @@fields[self] << name
     loc = @@pos[self]
     extractor = if (if args.include?(:big_endian)
       :big_endian
@@ -32,11 +42,13 @@ class MemStruct
     define_method name do
       @raw_data[loc, size].unpack(extractor)[0]
     end
-    define_method "#{name}=" do |v|
-      if v.is_a?(Fixnum)
-        v = [v].pack(extractor)
+    if @@save_it[self]
+      define_method "#{name}=" do |v|
+        if v.is_a?(Fixnum)
+          v = [v].pack(extractor)
+        end
+        @raw_data[loc, size] = v
       end
-      @raw_data[loc, size] = v
     end
     @@pos[self] += size
   end
@@ -51,5 +63,21 @@ class MemStruct
       d = hash
     end
     @raw_data = d
+  end
+
+  def unallocated_data
+    @raw_data[@@pos[self.class], @raw_data.length]
+  end
+
+  def to_struct
+    unless @@structs[self.class]
+      sargs = [self.class.name + "Struct"] + @@fields[self.class]
+      @@structs[self.class] = Struct.new(*sargs)
+    end
+    str = @@structs[self.class].new
+    @@fields[self.class].each do |name|
+      str[name] = send(name)
+    end
+    str
   end
 end
