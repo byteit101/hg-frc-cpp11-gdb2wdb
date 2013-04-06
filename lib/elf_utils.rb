@@ -10,7 +10,7 @@ class ElfLinker
     raise "No such file - #{file_name}" unless File.exist?(file_name)
   end
 
-  def link_at(base_addr, os_image, entry_point)
+  def link_at(base_addr, os_image, entry_point, save_to)
     Dir.mktmpdir("gdb2wdb") do |tmpdir|
       # step 1: generate linker script
       File.open(File.join(tmpdir, "fkm.ld"), "wb") {|ld|
@@ -23,9 +23,9 @@ class ElfLinker
         raise "Error running LD!"
       end
       # step 3: copy it back
-      FileUtils.cp(File.join(tmpdir, File.basename(@file_name)) + ".elf", @file_name + ".elf")
+      FileUtils.cp(File.join(tmpdir, File.basename(@file_name)) + ".elf", save_to)
     end
-    return @file_name + ".elf"
+    return save_to
   end
 
   def self.create_link_script(output, input, os_image, base_addr, entry_point = "FRC_UserProgram_StartupLibraryInit")

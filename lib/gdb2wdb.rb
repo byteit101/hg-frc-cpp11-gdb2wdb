@@ -8,13 +8,89 @@
 # ifno file => symbol tables
 
 
-require 'socket'
-require_relative 'wdb_proxy'
+require 'trollop'
 
 # Parse the args
 GDB_PACKET_END = /^\#(..)$/
-core_file = ARGV.length > 1 ? ARGV[1] : ENV['FRC_COREFILE']
-outfile = ARGV[0]
+
+opts = Trollop::Parser.new do
+  version "gdb2wdb 1.0 (c) 2013 Patrick Plenefisch"
+  banner <<-EOS
+GDB2WDB acts as a RSP client for GDB to enable debugging the cRIO (or any VxWorks target)
+
+Usage:
+       gdb2wdb options
+where options are:
+  EOS
+
+  opt :attach, "Attach to thread of given name [default is to upload]", :type => :string
+  opt :vxcorefile, "cRIO corefile (normally called cRIOFRC(II)_vxWorks)", :type => :io, :required => true
+  opt :code, "Robot code to debug (normally called FRC_UserProgram.out)", :type => :io
+  opt :no_gdb, "Don't run GDB on connect"
+  opt :extended, "Use extended-remote GDB command (only valid without --no-gdb)"
+  opt :port, "What port to listen for GDB on [default: 2345]", :type => :int, :default => 2345
+  opt :link_only, "Link at address 0 and exit"
+  opt :output_link, "Where to save the final linked elf file", :type => :string
+  opt :entry_point, "Entry point [default: FRC_UserProgram_StartupLibraryInit]", :type => :string, :default => "FRC_UserProgram_StartupLibraryInit"
+  opt :quiet, "Don't spew entire conversations", :default => false
+  opt :log, "Redirect output to logfile", :type => :string
+end
+$opts = Trollop::with_standard_exception_handling opts do
+  raise Trollop::HelpNeeded if ARGV.empty?
+  res = opts.parse ARGV
+  # check for invalid config
+  if !res[:attach] && !res[:code]
+    puts "Must provide robot code or a thread to attach to."
+    raise Trollop::HelpNeeded
+  end
+  # fix stuff
+  res[:code] = res[:code].path if res[:code]
+  res[:vxcorefile] = res[:vxcorefile].path if res[:vxcorefile]
+  if !res[:output_link] && res[:code]
+    res[:output_link] = res[:code] + ".exec.elf"
+  end
+  res
+end
+
+core_file = $opts[:vxcorefile]
+outfile = $opts[:code]
+
+if $opts[:link_only]
+  require_relative 'wdb_proxy'
+  WdbProxy.link_it(outfile, core_file, $opts[:output_link], $opts[:entry_point], 0)
+  exit 0
+end
+
+# have a forking good time :-D
+christmas_pipes = IO.pipe
+unless $opts[:no_gdb]
+  serverpid = fork
+  if serverpid # must be parent
+    msg = christmas_pipes[0].gets.strip
+    if msg == "die"
+      Process.kill("TERM", serverpid)
+      sleep 0.1
+      Process.kill("KILL", serverpid)
+      exit -1
+    elsif msg == "gdb"
+      Process.detach(serverpid)
+      exec("powerpc-wrs-vxworks-gdb -nx -ex \"target remote localhost:#{$opts[:port]}\" #{$opts[:output_link]}")
+    else
+      puts "umm...?"
+      p msg
+      Process.kill("TERM", serverpid)
+      sleep 0.1
+      Process.kill("KILL", serverpid)
+      exit -2
+    end
+  end
+end
+begin
+require 'socket'
+require_relative 'wdb_proxy'
+# exceptoin: "\x00\x00\x00\x06\x00\x00\x00\n\x00\x00\x00\x02\x00\x00\x00\x03\x00\xCB\xC5(\x0058 \x00\x00\x00\x03\x00\xCB\xC5(\x0058 \x00\x00\a\x00\x00\xECW\xF8\x00\x00\x00\x00"
+# go into the background
+Process.daemon(true, true) unless $opts[:no_gdb]
 
 def gdb_checksum(str)
   cs = 0
@@ -43,12 +119,14 @@ class TCPSocket
     loop do
       str += self.getc
       if str.length > 3 && str[0] == "$" && str[-3..-1].match(GDB_PACKET_END)
-        px = validate_gdb_packet(str)
-        if str[1] == "X"
-          xp = split_x_packet(px)
-          px = "X#{xp[0].to_s(16)},#{xp[1].to_s(16)}:#{xp[2].unpack("H*")[0]}"
+        unless $opts[:quiet]
+          px = validate_gdb_packet(str)
+          if str[1] == "X"
+            xp = split_x_packet(px)
+            px = "X#{xp[0].to_s(16)},#{xp[1].to_s(16)}:#{xp[2].unpack("H*")[0]}"
+          end
+          STDOUT.puts "<- #{px}"
         end
-        STDOUT.puts "<- #{px}"
         return str
       elsif str == "\x03" or str == "+"
         return str
@@ -56,10 +134,12 @@ class TCPSocket
     end
   end
   def put_gdb_str(cmd, quiet=false)
-    if quiet && cmd.length > 90
-      STDOUT.puts "-> #{cmd[0..42]}..#{cmd[-42..-1]}"
-    else
-      STDOUT.puts "-> #{cmd}"
+    unless $opts[:quiet]
+      if quiet && cmd.length > 90
+        STDOUT.puts "-> #{cmd[0..42]}..#{cmd[-42..-1]}"
+      else
+        STDOUT.puts "-> #{cmd}"
+      end
     end
     #TODO: encode
     self.send "$#{cmd}##{gdb_checksum(cmd)}", 0
@@ -69,9 +149,8 @@ class TCPSocket
   end
 end
 
-server = TCPServer.new 2345
-
-wdb_mush = WdbProxy.new(false)
+server = TCPServer.new $opts[:port]
+wdb_mush = WdbProxy.new($opts[:attach] != nil)
 
 puts " Using #{core_file} as cRIO corefile..."
 xml_segs = "<library-list><library name=\"#{core_file}\">"
@@ -86,14 +165,14 @@ wdb_mush.break_on_new_thread = true
 
 thread_id = 0
 on_quit = :detach
-if false
+if $opts[:attach]
   puts "Searching for thead..."
-  thread_id = wdb_mush.get_thread_id
+  thread_id = wdb_mush.get_thread_id($opts[:attach])
   puts "Breaking thread..."
   wdb_mush.break(thread_id)
 else
   puts "Loading code into target memory..."
-  thread_id = wdb_mush.upload_elf(outfile, core_file)
+  thread_id = wdb_mush.upload_elf(outfile, core_file, $opts[:output_link], $opts[:quiet], $opts[:entry_point])
   on_quit = :kill
 end
 
@@ -102,10 +181,23 @@ offset_desc = "Text=#{wdb_mush.mod_offsets.text.to_s 16};Data=#{wdb_mush.mod_off
 
 brkmap = {}
 all_threads = [thread_id]
-puts "Listening for GDB... connect with:\ntarget remote localhost:2345"
+puts "Listening for GDB... #{$opts[:no_gdb] ?"connect with:\npowerpc-wrs-vxworks-gdb -nx -ex \"target remote localhost:#{$opts[:port]}\" #{$opts[:output_link]}":""}"
+unless $opts[:no_gdb]
+  if $opts[:log]
+    STDOUT.reopen($opts[:log], "a")
+    STDERR.reopen($opts[:log], "a")
+  else
+    STDOUT.reopen("/dev/null", "w")
+    STDERR.reopen("/dev/null", "w")
+  end
+  # tell the mothership we want gdb
+  christmas_pipes[1].puts "gdb"
+end
+
 client = server.accept
 
 begin
+  # listen for events (aka breakpoints)
   wdb_mush.async_get_events() do |data|
     type = data[0].type
     if type == 3 || type == 1 # breakpoint, ctx create
@@ -127,11 +219,12 @@ begin
       p data
     end
   end
+  # GDB/RSP loop
   loop do
     str = client.get_gdb_str
     if str == "-"
       puts "FAIL FAIL FAIL!!!!"
-      exit -1
+      raise "GDB send a minus sign. All is not ok..."
     end
     str = validate_gdb_packet(str) unless str == "+" or str == "\x03"
     client.send "+", 0 if str
@@ -276,11 +369,11 @@ begin
     elsif str == "D" # detach
       client.put_ok
       on_quit = :detach if on_quit != :kill
-      break
+      raise nil
     elsif str == "k" # kill
       client.put_ok
       on_quit = :kill
-      break
+      raise nil
     elsif str.start_with? "vKill"
       client.put_ok
     else
@@ -289,6 +382,10 @@ begin
     end
   end
 ensure
+  puts "exiting"
+  p $?
+  STDOUT.flush
+  STDERR.flush
   client.close
   if on_quit == :detach
     wdb_mush.continue(thread_id)
@@ -297,4 +394,7 @@ ensure
   end
   wdb_mush.debug_mode = false
   wdb_mush.close
+end
+ensure
+christmas_pipes[1].puts "die"
 end

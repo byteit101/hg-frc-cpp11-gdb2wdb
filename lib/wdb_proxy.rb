@@ -2,6 +2,7 @@
 
 require_relative 'wdb/wdb'
 require_relative './elf_utils'
+require 'tmpdir'
 
 class WdbProxy
   attr_reader :mod_offsets
@@ -146,47 +147,59 @@ class WdbProxy
     end
   end
 
-  def upload_elf(filename, os_image)
-    entry_name = "FRC_UserProgram_StartupLibraryInit"
-    # compute the required size
+  def self.link_it(filename, os_image, olink0, entry_name, base_addr)
     elk = ElfLinker.new(filename)
-    elf = ElfParser.new(elk.link_at(0, os_image, entry_name))
+    elk.link_at(base_addr, os_image, entry_name, olink0)
+    olink0
+  end
+
+  def upload_elf(filename, os_image, olink0, quiet = false,  entry_name = "FRC_UserProgram_StartupLibraryInit")
+    WdbProxy.link_it(filename, os_image, olink0 + ".tmp", entry_name, 0)
+
+    # link0 should exist now
+    elk = ElfLinker.new(filename)
+    elf = ElfParser.new(olink0 + ".tmp")
+    thread_id = nil
+
+    # compute the required size
     allocated_size = elf.section(:text).size + elf.section(:data).size + elf.section(:bss).size + 42 # unicorns
+    # remove tmp file
+    File.unlink(olink0 + ".tmp")
     # request space
     addr = @wdb.memalign(8, allocated_size)
 
-    puts "Allocated on 0x#{addr.to_s 16}. Relocating elf file..."
-    elf = ElfParser.new(elk.link_at(addr, os_image, entry_name))
+    puts "Allocated on 0x#{addr.to_s 16}. Relocating elf file..." unless quiet
+    elf = ElfParser.new(elk.link_at(addr, os_image, entry_name, olink0))
 
-    puts "Zeroing entire allocated region..."
+    puts "Zeroing entire allocated region..." unless quiet
     @wdb.fill_mem(addr, allocated_size)
 
     puts "Begining upload in chunks of 384 (0x180) bytes at a time..."
     [:text, :data].each do |seg_name|
-      puts "Uploading .#{seg_name}..."
+      puts "Uploading .#{seg_name}..." unless quiet
       seg = elf.section(seg_name)
       seg_raw = seg.raw
       seg_address = seg.address
       (seg.size / 384.0).ceil.times do |idx|
         @wdb.set_mem(seg_address + (idx * 384), seg_raw[idx * 384, 384])
       end
-      puts "Done"
+      puts "Done" unless quiet
     end
 
-    puts "Refreshing cache..."
+    puts "Refreshing cache..." unless quiet
     @wdb.force_cache_refresh(addr, allocated_size)
 
-    puts "Calling constructors..."
+    puts "Calling constructors..." unless quiet
     @wdb.call_ctors(elf.address_of("_ctors"))
 
     puts "Creating new thread..."
     thread_id = @wdb.thread_new("t#{entry_name}", elf.address_of(entry_name))
     puts "Success! Thread is 0x#{thread_id.to_s 16}"
 
-    puts "Stopping at entry..."
+    puts "Stopping at entry..." unless quiet
     @wdb.thread_resume(thread_id) # resumes creation, then instantly hits implicit stop
 
-    puts "Saving offsets..."
+    puts "Saving offsets..." unless quiet
     @mod_offsets = Moduletab.new(false, 0,0,0, [])
 
     thread_id
