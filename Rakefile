@@ -1,45 +1,32 @@
-# 
+#
 # To change this template, choose Tools | Templates
 # and open the template in the editor.
- 
+
 
 require 'rubygems'
 require 'rake'
 require 'rake/clean'
-require 'rake/gempackagetask'
-require 'rake/rdoctask'
-require 'rake/testtask'
+require 'rubygems/package_task'
 
 spec = Gem::Specification.new do |s|
   s.name = 'Gdb2Wdb'
-  s.version = '0.0.1'
-  s.has_rdoc = true
+  s.version = '0.1.0'
+  s.has_rdoc = false
   s.extra_rdoc_files = ['README', 'LICENSE']
-  s.summary = 'Your summary here'
-  s.description = s.summary
-  s.author = ''
-  s.email = ''
-  # s.executables = ['your_executable_here']
+  s.summary = 'VxWorks debug bridge'
+  s.description = "GDB (RSP) to WDB server to enable debugging VxWorks kernel modules"
+  s.author = 'Patrick Plenefisch'
+  s.email = 'simonpatp@gmail.com'
+  s.executables = ['gdb2wdb']
   s.files = %w(LICENSE README Rakefile) + Dir.glob("{bin,lib,spec}/**/*")
   s.require_path = "lib"
   s.bindir = "bin"
+  s.add_dependency "trollop"
+  s.homepage = "http://firstforge.wpi.edu/sf/wiki/do/viewPage/projects.c--11_toochain/wiki/GDB"
 end
 
-Rake::GemPackageTask.new(spec) do |p|
+Gem::PackageTask.new(spec) do |p|
   p.gem_spec = spec
   p.need_tar = true
   p.need_zip = true
-end
-
-Rake::RDocTask.new do |rdoc|
-  files =['README', 'LICENSE', 'lib/**/*.rb']
-  rdoc.rdoc_files.add(files)
-  rdoc.main = "README" # page to start on
-  rdoc.title = "Gdb2Wdb Docs"
-  rdoc.rdoc_dir = 'doc/rdoc' # rdoc output folder
-  rdoc.options << '--line-numbers'
-end
-
-Rake::TestTask.new do |t|
-  t.test_files = FileList['test/**/*.rb']
 end
