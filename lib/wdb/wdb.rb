@@ -137,13 +137,13 @@ class Wdb
   def get_event
     loop {
       q = send OncRpc.wrap(@seqn += 1, FUNC_NUMBERS['EVENT_GET'], @core.get_mem)
-    res = decode_event(strip_header(q))
-    if res == 666
-      p q
-      puts "hmm..."
-      res = nil
-    end
-    return res if res != nil
+      res = decode_event(strip_header(q))
+      if res == 666
+        p q
+        puts "hmm..."
+        res = nil
+      end
+      return res if res != nil
     }
   end
   def set_name(str)

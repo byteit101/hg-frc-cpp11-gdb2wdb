@@ -28,12 +28,12 @@ class MemStruct
     @@fields[self] << name
     loc = @@pos[self]
     extractor = if (if args.include?(:big_endian)
-      :big_endian
-    elsif args.include?(:little_endian)
-      :little_endian
-    else
-      @@enc[self]
-    end) == :big_endian
+          :big_endian
+        elsif args.include?(:little_endian)
+          :little_endian
+        else
+          @@enc[self]
+        end) == :big_endian
       "N"
     else
       "V"
