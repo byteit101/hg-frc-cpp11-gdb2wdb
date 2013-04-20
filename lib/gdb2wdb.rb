@@ -28,7 +28,7 @@ require 'trollop'
 GDB_PACKET_END = /^\#(..)$/
 
 opts = Trollop::Parser.new do
-  version "gdb2wdb 0.1.0 (c) 2013 Patrick Plenefisch"
+  version "gdb2wdb 1.0 (c) 2013 Patrick Plenefisch"
   banner <<-EOS
 GDB2WDB acts as a RSP client for GDB to enable debugging the cRIO (or any VxWorks target)
 
