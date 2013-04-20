@@ -9,8 +9,8 @@ require 'rake/clean'
 require 'rubygems/package_task'
 
 spec = Gem::Specification.new do |s|
-  s.name = 'Gdb2Wdb'
-  s.version = '0.1.0'
+  s.name = 'gdb2wdb'
+  s.version = '1.0'
   s.has_rdoc = false
   s.extra_rdoc_files = ['README', 'LICENSE']
   s.summary = 'VxWorks debug bridge'
