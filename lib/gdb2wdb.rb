@@ -37,7 +37,7 @@ Usage:
 where options are:
   EOS
 
-  opt :attach, "Attach to thread of given name [default is to upload]", :type => :string
+  opt :attach, "Attach to thread of given name (default is to upload)", :type => :string
   opt :vxcorefile, "cRIO corefile (normally called cRIOFRC(II)_vxWorks)", :type => :io, :required => true
   opt :code, "Robot code to debug (normally called FRC_UserProgram.out)", :type => :io
   opt :no_gdb, "Don't run GDB on connect"
@@ -45,7 +45,7 @@ where options are:
   opt :port, "What port to listen for GDB on ", :type => :int, :default => 2345
   opt :link_only, "Link at address 0 and exit"
   opt :output_link, "Where to save the final linked elf file", :type => :string
-  opt :entry_point, "Entry point [default: FRC_UserProgram_StartupLibraryInit]", :type => :string, :default => "FRC_UserProgram_StartupLibraryInit"
+  opt :entry_point, "Entry point ", :type => :string, :default => "FRC_UserProgram_StartupLibraryInit"
   opt :quiet, "Don't spew entire conversations", :default => false
   opt :log, "Redirect output to logfile", :type => :string
 end
