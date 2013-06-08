@@ -22,8 +22,8 @@ require 'tmpdir'
 class WdbProxy
   attr_reader :mod_offsets
   attr_reader :wdb
-  def initialize(seek_out=true)
-    @wdb = Wdb.new "10.4.51.2"
+  def initialize(host, seek_out=true)
+    @wdb = Wdb.new host
     @breakpts = []
     @thread_breakpoints = nil
     @wdb.connect

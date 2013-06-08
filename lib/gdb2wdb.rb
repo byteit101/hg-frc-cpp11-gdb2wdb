@@ -40,6 +40,7 @@ where options are:
   opt :attach, "Attach to thread of given name [default is to upload]", :type => :string
   opt :vxcorefile, "cRIO corefile (normally called cRIOFRC(II)_vxWorks)", :type => :io, :required => true
   opt :code, "Robot code to debug (normally called FRC_UserProgram.out)", :type => :io
+  opt :host, "IP address of the cRIO, usually in 10.xx.yy.2 format", :type => :string, :required => true
   opt :no_gdb, "Don't run GDB on connect"
   opt :extended, "Use extended-remote GDB command (only valid without --no-gdb)"
   opt :port, "What port to listen for GDB on [default: 2345]", :type => :int, :default => 2345
@@ -168,7 +169,7 @@ begin
   end
 
   server = TCPServer.new $opts[:port]
-  wdb_mush = WdbProxy.new($opts[:attach] != nil)
+  wdb_mush = WdbProxy.new($opts[:host], $opts[:attach] != nil)
 
   puts " Using #{core_file} as cRIO corefile..."
   xml_segs = "<library-list><library name=\"#{core_file}\">"
