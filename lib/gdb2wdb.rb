@@ -28,7 +28,7 @@ require 'trollop'
 GDB_PACKET_END = /^\#(..)$/
 
 opts = Trollop::Parser.new do
-  version "gdb2wdb 0.1.0 (c) 2013 Patrick Plenefisch"
+  version "gdb2wdb 0.1 (c) 2013 Patrick Plenefisch"
   banner <<-EOS
 GDB2WDB acts as a RSP client for GDB to enable debugging the cRIO (or any VxWorks target)
 
@@ -37,16 +37,16 @@ Usage:
 where options are:
   EOS
 
-  opt :attach, "Attach to thread of given name [default is to upload]", :type => :string
+  opt :attach, "Attach to thread of given name (default is to upload)", :type => :string
   opt :vxcorefile, "cRIO corefile (normally called cRIOFRC(II)_vxWorks)", :type => :io, :required => true
   opt :code, "Robot code to debug (normally called FRC_UserProgram.out)", :type => :io
   opt :host, "IP address of the cRIO, usually in 10.xx.yy.2 format", :type => :string, :required => true
   opt :no_gdb, "Don't run GDB on connect"
   opt :extended, "Use extended-remote GDB command (only valid without --no-gdb)"
-  opt :port, "What port to listen for GDB on [default: 2345]", :type => :int, :default => 2345
+  opt :port, "What port to listen for GDB on ", :type => :int, :default => 2345
   opt :link_only, "Link at address 0 and exit"
   opt :output_link, "Where to save the final linked elf file", :type => :string
-  opt :entry_point, "Entry point [default: FRC_UserProgram_StartupLibraryInit]", :type => :string, :default => "FRC_UserProgram_StartupLibraryInit"
+  opt :entry_point, "Entry point ", :type => :string, :default => "FRC_UserProgram_StartupLibraryInit"
   opt :quiet, "Don't spew entire conversations", :default => false
   opt :log, "Redirect output to logfile", :type => :string
 end
